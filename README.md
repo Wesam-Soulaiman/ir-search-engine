@@ -2,12 +2,6 @@
 
 A practical Information Retrieval project built with Django and React.
 
-## Current Status
-
-- Django backend is running.
-- REST API endpoint `/api/search/` is created.
-- React frontend will be connected to the backend.
-- The current search results are temporary sample results.
 
 ## Tech Stack
 
