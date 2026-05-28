@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+db.sqlite3
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Django
+backend/staticfiles/
+backend/media/
+*.log
+
+# Environment variables
+.env
+.env.local
+
+# React / Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
+# Data and indexes
+data/
+indexes/
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Reports temporary files
+*.tmp
+*.bak
