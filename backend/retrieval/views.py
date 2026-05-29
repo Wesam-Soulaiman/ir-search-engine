@@ -4,26 +4,46 @@ from django.conf import settings
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from retrieval.bm25_service import BM25RetrievalService
 from retrieval.tfidf_service import TfidfRetrievalService
 
 
 _tfidf_service = None
+_bm25_services = {}
+
+
+def get_dataset_path():
+    project_root = settings.BASE_DIR.parent
+    return os.path.join(
+        project_root,
+        "data",
+        "sample_dataset",
+        "documents.json"
+    )
 
 
 def get_tfidf_service():
     global _tfidf_service
 
     if _tfidf_service is None:
-        project_root = settings.BASE_DIR.parent
-        dataset_path = os.path.join(
-            project_root,
-            "data",
-            "sample_dataset",
-            "documents.json"
-        )
-        _tfidf_service = TfidfRetrievalService(dataset_path)
+        _tfidf_service = TfidfRetrievalService(get_dataset_path())
 
     return _tfidf_service
+
+
+def get_bm25_service(k1: float = 1.5, b: float = 0.75):
+    global _bm25_services
+
+    key = f"k1={k1}_b={b}"
+
+    if key not in _bm25_services:
+        _bm25_services[key] = BM25RetrievalService(
+            dataset_path=get_dataset_path(),
+            k1=k1,
+            b=b
+        )
+
+    return _bm25_services[key]
 
 
 @api_view(["POST"])
@@ -32,6 +52,9 @@ def search_view(request):
     dataset = request.data.get("dataset", "sample_dataset")
     model = request.data.get("model", "tfidf")
     top_k = int(request.data.get("top_k", 10))
+
+    bm25_k1 = float(request.data.get("bm25_k1", 1.5))
+    bm25_b = float(request.data.get("bm25_b", 0.75))
 
     if not query.strip():
         return Response({
@@ -42,6 +65,11 @@ def search_view(request):
     if model == "tfidf":
         service = get_tfidf_service()
         results = service.search(query=query, top_k=top_k)
+
+    elif model == "bm25":
+        service = get_bm25_service(k1=bm25_k1, b=bm25_b)
+        results = service.search(query=query, top_k=top_k)
+
     else:
         results = [
             {
@@ -58,5 +86,7 @@ def search_view(request):
         "dataset": dataset,
         "model": model,
         "top_k": top_k,
+        "bm25_k1": bm25_k1 if model == "bm25" else None,
+        "bm25_b": bm25_b if model == "bm25" else None,
         "results": results,
     })
