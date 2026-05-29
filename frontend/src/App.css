@@ -129,3 +129,26 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+.bm25-panel {
+  margin-top: 20px;
+  padding: 18px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+}
+
+.bm25-panel h3 {
+  margin-top: 0;
+  color: #1e3a8a;
+}
+
+.grid.two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.hint {
+  color: #64748b;
+  font-size: 14px;
+  margin-bottom: 0;
+}
