@@ -5,10 +5,12 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from retrieval.bm25_service import BM25RetrievalService
+from retrieval.embedding_service import EmbeddingRetrievalService
 from retrieval.tfidf_service import TfidfRetrievalService
 
 
 _tfidf_service = None
+_embedding_service = None
 _bm25_services = {}
 
 
@@ -46,6 +48,15 @@ def get_bm25_service(k1: float = 1.5, b: float = 0.75):
     return _bm25_services[key]
 
 
+def get_embedding_service():
+    global _embedding_service
+
+    if _embedding_service is None:
+        _embedding_service = EmbeddingRetrievalService(get_dataset_path())
+
+    return _embedding_service
+
+
 @api_view(["POST"])
 def search_view(request):
     query = request.data.get("query", "")
@@ -68,6 +79,10 @@ def search_view(request):
 
     elif model == "bm25":
         service = get_bm25_service(k1=bm25_k1, b=bm25_b)
+        results = service.search(query=query, top_k=top_k)
+
+    elif model == "embedding":
+        service = get_embedding_service()
         results = service.search(query=query, top_k=top_k)
 
     else:
