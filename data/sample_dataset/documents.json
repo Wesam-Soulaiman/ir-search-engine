@@ -1,0 +1,27 @@
+[
+  {
+    "doc_id": "DOC001",
+    "title": "Introduction to Machine Learning",
+    "text": "Machine learning is a field of artificial intelligence that gives computers the ability to learn from data."
+  },
+  {
+    "doc_id": "DOC002",
+    "title": "Deep Learning Basics",
+    "text": "Deep learning uses neural networks with many layers to solve complex problems in computer vision and natural language processing."
+  },
+  {
+    "doc_id": "DOC003",
+    "title": "Information Retrieval Systems",
+    "text": "Information retrieval is the process of finding relevant documents from a large collection based on a user query."
+  },
+  {
+    "doc_id": "DOC004",
+    "title": "Search Engines",
+    "text": "Search engines use indexing, ranking, and query processing to retrieve relevant web pages."
+  },
+  {
+    "doc_id": "DOC005",
+    "title": "Natural Language Processing",
+    "text": "Natural language processing helps computers understand, interpret, and generate human language."
+  }
+]

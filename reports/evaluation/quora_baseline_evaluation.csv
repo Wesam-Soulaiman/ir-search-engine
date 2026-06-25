@@ -1,0 +1,6 @@
+dataset,model,top_k,evaluated_queries,use_query_refinement,feedback_docs,expansion_terms,MAP,Precision@10,Recall@10,nDCG@10
+quora,tfidf,10,14,False,,,1.0,0.114286,1.0,1.0
+quora,bm25,10,14,False,,,1.0,0.114286,1.0,1.0
+quora,embedding,10,14,False,,,1.0,0.114286,1.0,1.0
+quora,hybrid_serial,10,14,False,,,1.0,0.114286,1.0,1.0
+quora,hybrid_parallel,10,14,False,,,1.0,0.114286,1.0,1.0

@@ -1,0 +1,2 @@
+dataset,model,retrieval_mode,query_batch_size,retrieval_depth,precision_k,recall_k,ndcg_k,loaded_queries,qrels_queries,evaluated_queries,queries_with_positive_qrels,queries_without_positive_qrels,use_query_refinement,feedback_docs,expansion_terms,bm25_k1,bm25_b,candidate_count,rrf_k,MAP@100,Precision@10,Recall@100,nDCG@10,EvaluationWallTimeSeconds,AverageQueryTimeMs,QueriesPerSecond
+quora,tfidf,batch,100,100,10,100,10,10000,10000,10000,10000,0,False,,,1.5,0.75,,,0.689935,0.11189,0.952802,0.73133,106.097,10.61,94.253

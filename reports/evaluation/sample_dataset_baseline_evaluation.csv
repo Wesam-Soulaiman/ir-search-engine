@@ -1,0 +1,6 @@
+dataset,model,top_k,evaluated_queries,use_query_refinement,feedback_docs,expansion_terms,MAP,Precision@10,Recall@5,nDCG@5
+sample_dataset,tfidf,5,3,False,,,0.777778,0.166667,1.0,0.833333
+sample_dataset,bm25,5,3,False,,,0.777778,0.166667,1.0,0.833333
+sample_dataset,embedding,5,3,False,,,1.0,0.166667,1.0,1.0
+sample_dataset,hybrid_serial,5,3,False,,,1.0,0.166667,1.0,1.0
+sample_dataset,hybrid_parallel,5,3,False,,,0.833333,0.166667,1.0,0.876977

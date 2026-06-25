@@ -1,0 +1,128 @@
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Python build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ============================================================
+# Virtual environments
+# ============================================================
+.venv/
+.venv-test/
+**/.venv-test/
+venv/
+env/
+
+# ============================================================
+# Django
+# ============================================================
+backend/staticfiles/
+backend/media/
+*.log
+
+# Local Django / SQLite databases
+db.sqlite3
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+*.db-wal
+*.db-shm
+
+# ============================================================
+# Environment variables / secrets
+# ============================================================
+.env
+.env.local
+*.env
+
+# ============================================================
+# React / Node
+# ============================================================
+frontend/node_modules/
+node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.env.local
+
+# ============================================================
+# Data and generated indexes
+# Keep only the sample dataset tracked
+# ============================================================
+data/*
+!data/sample_dataset/
+!data/sample_dataset/**
+
+# Full generated indexes
+indexes/
+backend/indexes/
+
+# Local corpus database and checkpoints
+artifacts/database/
+backend/artifacts/
+
+# Local downloaded models
+artifacts/models/
+artifacts/clustering/
+
+# Generated index / model artifacts
+*.faiss
+*.index
+*.pkl
+*.joblib
+*.memmap
+*.npy
+*.npz
+
+# ============================================================
+# Reports
+# ============================================================
+# Reports are allowed to be committed.
+# This includes reports/evaluation/*.csv
+!reports/
+!reports/**
+!reports/evaluation/
+!reports/evaluation/**
+
+# Ignore only temporary report files
+reports/**/*.tmp
+reports/**/*.bak
+
+# ============================================================
+# Notebook checkpoints
+# ============================================================
+.ipynb_checkpoints/
+
+# ============================================================
+# OS / Editor
+# ============================================================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ============================================================
+# Temporary files
+# ============================================================
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# ============================================================
+# Archives
+# ============================================================
+*.zip
+*.rar
+*.7z

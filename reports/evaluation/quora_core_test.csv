@@ -1,0 +1,3 @@
+dataset,model,retrieval_depth,precision_k,recall_k,ndcg_k,loaded_queries,qrels_queries,evaluated_queries,queries_with_positive_qrels,queries_without_positive_qrels,use_query_refinement,feedback_docs,expansion_terms,bm25_k1,bm25_b,candidate_count,rrf_k,MAP@100,Precision@10,Recall@100,nDCG@10,AverageQueryTimeMs
+quora,tfidf,100,10,100,10,20,14,14,14,0,False,,,1.5,0.75,,,0.964286,0.114286,1.0,0.973638,1.267
+quora,bm25,100,10,100,10,20,14,14,14,0,False,,,1.5,0.75,,,1.0,0.114286,1.0,1.0,0.852

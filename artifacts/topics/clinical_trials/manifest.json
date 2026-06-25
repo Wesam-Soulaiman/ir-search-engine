@@ -1,0 +1,14 @@
+{
+  "feature": "topic_detection",
+  "dataset": "clinical_trials",
+  "source_feature": "document_clustering",
+  "cluster_manifest": "C:\\Users\\LONOVO\\Desktop\\Final Year 5\\IR\\ir-search-engine\\artifacts\\clustering\\clinical_trials\\manifest.json",
+  "document_count": 241006,
+  "n_clusters": 20,
+  "top_terms": 10,
+  "sample_docs_per_cluster": 500,
+  "fetch_batch_size": 500,
+  "min_term_length": 3,
+  "domain_stopwords_count": 104,
+  "report": "C:\\Users\\LONOVO\\Desktop\\Final Year 5\\IR\\ir-search-engine\\reports\\topics\\clinical_trials_cluster_topics.csv"
+}

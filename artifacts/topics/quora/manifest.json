@@ -1,0 +1,14 @@
+{
+  "feature": "topic_detection",
+  "dataset": "quora",
+  "source_feature": "document_clustering",
+  "cluster_manifest": "C:\\Users\\LONOVO\\Desktop\\Final Year 5\\IR\\ir-search-engine\\artifacts\\clustering\\quora\\manifest.json",
+  "document_count": 522931,
+  "n_clusters": 30,
+  "top_terms": 10,
+  "sample_docs_per_cluster": 500,
+  "fetch_batch_size": 500,
+  "min_term_length": 3,
+  "domain_stopwords_count": 32,
+  "report": "C:\\Users\\LONOVO\\Desktop\\Final Year 5\\IR\\ir-search-engine\\reports\\topics\\quora_cluster_topics.csv"
+}

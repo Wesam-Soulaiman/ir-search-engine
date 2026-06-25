@@ -1,0 +1,6 @@
+dataset,model,top_k,evaluated_queries,use_query_refinement,feedback_docs,expansion_terms,MAP,Precision@10,Recall@10,nDCG@10
+clinical_trials,tfidf,10,20,True,2,3,0.084227,0.375,0.114807,0.31443
+clinical_trials,bm25,10,20,True,2,3,0.142142,0.53,0.162773,0.414539
+clinical_trials,embedding,10,20,True,2,3,0.070485,0.415,0.100577,0.353607
+clinical_trials,hybrid_serial,10,20,True,2,3,0.074701,0.455,0.108681,0.378658
+clinical_trials,hybrid_parallel,10,20,True,2,3,0.123828,0.5,0.145567,0.427309

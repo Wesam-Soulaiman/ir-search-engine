@@ -1,0 +1,2 @@
+dataset,model,retrieval_mode,query_batch_size,retrieval_depth,precision_k,recall_k,ndcg_k,loaded_queries,qrels_queries,evaluated_queries,queries_with_positive_qrels,queries_without_positive_qrels,use_query_refinement,feedback_docs,expansion_terms,bm25_k1,bm25_b,candidate_count,rrf_k,MAP@100,Precision@10,Recall@100,nDCG@10,EvaluationWallTimeSeconds,AverageQueryTimeMs,QueriesPerSecond
+clinical_trials,bm25,batch,25,100,10,100,10,50,50,50,50,0,False,,,1.5,0.75,,,0.227589,0.44,0.410081,0.41982,5.071,101.426,9.859
