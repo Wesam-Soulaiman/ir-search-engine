@@ -41,6 +41,12 @@ function SearchSummary({
             BM25 weight: {info.bm25_weight}
             {" · "}
             Embedding weight: {info.embedding_weight}
+            {Number(info.biomedical_weight) > 0 ? (
+              <>
+                {" آ· "}
+                Biomedical PubMedBERT weight: {info.biomedical_weight}
+              </>
+            ) : null}
             {" · "}
             Fusion: {info.fusion_method || "Weighted RRF"}
           </p>

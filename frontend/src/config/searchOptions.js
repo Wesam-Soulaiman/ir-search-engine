@@ -39,6 +39,12 @@ export const MODELS = [
     tag: "Semantic",
   },
   {
+    value: "biomedical_embedding",
+    label: "Biomedical PubMedBERT",
+    description: "Biomedical semantic search for Clinical Trials.",
+    tag: "Biomedical",
+  },
+  {
     value: "hybrid_serial",
     label: "Hybrid Serial",
     description: "BM25 candidates with embedding reranking.",
@@ -77,6 +83,7 @@ export const DEFAULT_SEARCH_FORM = {
   tfidfWeight: 1.0,
   bm25Weight: 1.0,
   embeddingWeight: 1.0,
+  biomedicalWeight: 0,
   useSpellingCorrection: false,
   useQueryRefinement: false,
   feedbackDocs: 3,

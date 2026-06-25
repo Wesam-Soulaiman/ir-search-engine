@@ -26,6 +26,9 @@ from query_refinement.spelling_correction_service import (
 from retrieval.bm25_service import (
     BM25RetrievalService,
 )
+from retrieval.biomedical_embedding_service import (
+    BiomedicalEmbeddingService,
+)
 from retrieval.embedding_service import (
     EmbeddingRetrievalService,
 )
@@ -63,6 +66,7 @@ SUPPORTED_MODELS = {
     "tfidf",
     "bm25",
     "embedding",
+    "biomedical_embedding",
     "hybrid_serial",
     "hybrid_parallel",
     "agent",
@@ -87,6 +91,7 @@ MAX_RRF_K = 100_000
 DEFAULT_TFIDF_WEIGHT = 1.0
 DEFAULT_BM25_WEIGHT = 1.0
 DEFAULT_EMBEDDING_WEIGHT = 1.0
+DEFAULT_BIOMEDICAL_WEIGHT = 0.0
 MAX_HYBRID_WEIGHT = 100.0
 
 DEFAULT_FEEDBACK_DOCS = 3
@@ -138,6 +143,15 @@ def get_embedding_service(
     )
 
 
+@lru_cache(maxsize=1)
+def get_biomedical_embedding_service(
+    dataset_key: str = "clinical_trials",
+):
+    return BiomedicalEmbeddingService(
+        dataset_key=dataset_key
+    )
+
+
 @lru_cache(maxsize=16)
 def get_hybrid_serial_service(
     dataset_key: str = DEFAULT_DATASET,
@@ -163,6 +177,7 @@ def get_hybrid_parallel_service(
     tfidf_weight: float = DEFAULT_TFIDF_WEIGHT,
     bm25_weight: float = DEFAULT_BM25_WEIGHT,
     embedding_weight: float = DEFAULT_EMBEDDING_WEIGHT,
+    biomedical_weight: float = DEFAULT_BIOMEDICAL_WEIGHT,
 ):
     return HybridParallelRetrievalService(
         dataset_key=dataset_key,
@@ -173,6 +188,7 @@ def get_hybrid_parallel_service(
         tfidf_weight=float(tfidf_weight),
         bm25_weight=float(bm25_weight),
         embedding_weight=float(embedding_weight),
+        biomedical_weight=float(biomedical_weight),
     )
 
 
@@ -433,6 +449,33 @@ def parse_search_request(
         maximum=MAX_HYBRID_WEIGHT,
     )
 
+    biomedical_weight = parse_float(
+        value=request_data.get("biomedical_weight"),
+        field_name="biomedical_weight",
+        default=DEFAULT_BIOMEDICAL_WEIGHT,
+        minimum=0.0,
+        maximum=MAX_HYBRID_WEIGHT,
+    )
+
+    if (
+        model == "biomedical_embedding"
+        and dataset_key != "clinical_trials"
+    ):
+        raise ValueError(
+            "biomedical_embedding is only supported for the "
+            "clinical_trials dataset."
+        )
+
+    if (
+        model == "hybrid_parallel"
+        and biomedical_weight > 0
+        and dataset_key != "clinical_trials"
+    ):
+        raise ValueError(
+            "biomedical_weight can only be used with the "
+            "clinical_trials dataset."
+        )
+
     use_query_refinement = parse_boolean(
         value=request_data.get(
             "use_query_refinement",
@@ -524,6 +567,7 @@ def parse_search_request(
             tfidf_weight
             + bm25_weight
             + embedding_weight
+            + biomedical_weight
         )
         <= 0
     ):
@@ -553,6 +597,7 @@ def parse_search_request(
         "tfidf_weight": tfidf_weight,
         "bm25_weight": bm25_weight,
         "embedding_weight": embedding_weight,
+        "biomedical_weight": biomedical_weight,
         "use_query_refinement": (
             use_query_refinement
         ),
@@ -640,6 +685,7 @@ def run_search(
     tfidf_weight: float,
     bm25_weight: float,
     embedding_weight: float,
+    biomedical_weight: float = DEFAULT_BIOMEDICAL_WEIGHT,
 ):
     if model == "tfidf":
         service = get_tfidf_service(
@@ -673,6 +719,16 @@ def run_search(
             top_k=top_k,
         )
 
+    if model == "biomedical_embedding":
+        service = get_biomedical_embedding_service(
+            dataset_key=dataset_key
+        )
+
+        return service.search(
+            query=query,
+            top_k=top_k,
+        )
+
     if model == "hybrid_serial":
         service = get_hybrid_serial_service(
             dataset_key=dataset_key,
@@ -696,6 +752,7 @@ def run_search(
             tfidf_weight=tfidf_weight,
             bm25_weight=bm25_weight,
             embedding_weight=embedding_weight,
+            biomedical_weight=biomedical_weight,
         )
 
         return service.search(
@@ -978,11 +1035,31 @@ def search_view(request):
                 parameters["tfidf_weight"]
                 + parameters["bm25_weight"]
                 + parameters["embedding_weight"]
+                + parameters["biomedical_weight"]
             )
             <= 0
         ):
             raise ValueError(
                 "At least one hybrid parallel weight must be greater than 0."
+            )
+
+        if (
+            executed_model == "hybrid_parallel"
+            and parameters["biomedical_weight"] > 0
+            and parameters["dataset_key"] != "clinical_trials"
+        ):
+            raise ValueError(
+                "biomedical_weight can only be used with the "
+                "clinical_trials dataset."
+            )
+
+        if (
+            executed_model == "biomedical_embedding"
+            and parameters["dataset_key"] != "clinical_trials"
+        ):
+            raise ValueError(
+                "biomedical_embedding is only supported for the "
+                "clinical_trials dataset."
             )
 
         results = run_search(
@@ -1001,6 +1078,7 @@ def search_view(request):
             tfidf_weight=parameters["tfidf_weight"],
             bm25_weight=parameters["bm25_weight"],
             embedding_weight=parameters["embedding_weight"],
+            biomedical_weight=parameters["biomedical_weight"],
         )
 
         results = enrich_search_results(
@@ -1132,6 +1210,11 @@ def search_view(request):
             ),
             "embedding_weight": (
                 parameters["embedding_weight"]
+                if model_is_weighted_parallel
+                else None
+            ),
+            "biomedical_weight": (
+                parameters["biomedical_weight"]
                 if model_is_weighted_parallel
                 else None
             ),

@@ -14,6 +14,9 @@ from query_refinement.pseudo_relevance_feedback import (
 from retrieval.bm25_service import (
     BM25RetrievalService,
 )
+from retrieval.biomedical_embedding_service import (
+    BiomedicalEmbeddingService,
+)
 from retrieval.embedding_service import (
     EmbeddingRetrievalService,
 )
@@ -32,6 +35,7 @@ SUPPORTED_MODELS = {
     "tfidf",
     "bm25",
     "embedding",
+    "biomedical_embedding",
     "hybrid_serial",
     "hybrid_parallel",
 }
@@ -76,6 +80,7 @@ class EvaluationRunner:
         bm25_k1: float = 1.5,
         bm25_b: float = 0.75,
         rrf_k: int = 60,
+        biomedical_weight: float = 0.0,
         use_query_refinement: bool = False,
         feedback_docs: int = 3,
         expansion_terms: int = 5,
@@ -121,6 +126,10 @@ class EvaluationRunner:
 
         self.rrf_k = int(
             rrf_k
+        )
+
+        self.biomedical_weight = float(
+            biomedical_weight
         )
 
         self.use_query_refinement = bool(
@@ -273,6 +282,21 @@ class EvaluationRunner:
         if self.rrf_k <= 0:
             raise ValueError(
                 "rrf_k must be greater than zero."
+            )
+
+        if self.biomedical_weight < 0:
+            raise ValueError(
+                "biomedical_weight must be greater than or equal to zero."
+            )
+
+        if (
+            self.model_name == "hybrid_parallel"
+            and self.biomedical_weight > 0
+            and self.dataset_key != "clinical_trials"
+        ):
+            raise ValueError(
+                "biomedical_weight can only be used with the "
+                "clinical_trials dataset."
             )
 
         if self.query_batch_size <= 0:
@@ -451,6 +475,11 @@ class EvaluationRunner:
                 dataset_key=self.dataset_key
             )
 
+        if self.model_name == "biomedical_embedding":
+            return BiomedicalEmbeddingService(
+                dataset_key=self.dataset_key
+            )
+
         if self.model_name == "hybrid_serial":
             return HybridSerialRetrievalService(
                 dataset_key=self.dataset_key,
@@ -469,6 +498,9 @@ class EvaluationRunner:
                 rrf_k=self.rrf_k,
                 candidate_count=(
                     self.candidate_count
+                ),
+                biomedical_weight=(
+                    self.biomedical_weight
                 ),
             )
 
@@ -1043,6 +1075,12 @@ class EvaluationRunner:
             ),
             "rrf_k": (
                 self.rrf_k
+                if self.model_name
+                == "hybrid_parallel"
+                else None
+            ),
+            "biomedical_weight": (
+                self.biomedical_weight
                 if self.model_name
                 == "hybrid_parallel"
                 else None

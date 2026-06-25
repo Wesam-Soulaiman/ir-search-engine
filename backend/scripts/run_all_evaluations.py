@@ -148,6 +148,16 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--biomedical-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional biomedical PubMedBERT embedding weight for "
+            "hybrid_parallel. Defaults to 0.0."
+        ),
+    )
+
+    parser.add_argument(
         "--use-query-refinement",
         action="store_true",
         help="Enable pseudo-relevance feedback.",
@@ -335,6 +345,24 @@ def validate_args(args, dataset_keys: List[str]):
             "rrf-k must be greater than zero."
         )
 
+    if args.biomedical_weight < 0:
+        raise ValueError(
+            "biomedical-weight must be greater than or equal to zero."
+        )
+
+    if (
+        args.biomedical_weight > 0
+        and "hybrid_parallel" in args.models
+        and any(
+            dataset_key != "clinical_trials"
+            for dataset_key in dataset_keys
+        )
+    ):
+        raise ValueError(
+            "biomedical-weight can only be used with hybrid_parallel "
+            "on the clinical_trials dataset."
+        )
+
     if args.query_batch_size <= 0:
         raise ValueError(
             "query-batch-size must be greater "
@@ -402,6 +430,7 @@ def run_model_evaluation(
     bm25_k1: float,
     bm25_b: float,
     rrf_k: int,
+    biomedical_weight: float,
     use_query_refinement: bool,
     feedback_docs: int,
     expansion_terms: int,
@@ -418,6 +447,7 @@ def run_model_evaluation(
         bm25_k1=bm25_k1,
         bm25_b=bm25_b,
         rrf_k=rrf_k,
+        biomedical_weight=biomedical_weight,
         use_query_refinement=(
             use_query_refinement
         ),
@@ -536,6 +566,12 @@ def build_failure_result(
             == "hybrid_parallel"
             else None
         ),
+        "biomedical_weight": (
+            args.biomedical_weight
+            if model_name
+            == "hybrid_parallel"
+            else None
+        ),
         f"MAP@{args.retrieval_depth}": None,
         f"Precision@{args.precision_k}": None,
         f"Recall@{recall_k}": None,
@@ -585,6 +621,10 @@ def print_configuration(
     print(
         "Candidate count: "
         f"{args.candidate_count:,}"
+    )
+    print(
+        "Biomedical weight: "
+        f"{args.biomedical_weight:g}"
     )
     print(
         "Query batch size: "
@@ -642,6 +682,7 @@ def evaluate_dataset(
                 bm25_k1=args.bm25_k1,
                 bm25_b=args.bm25_b,
                 rrf_k=args.rrf_k,
+                biomedical_weight=args.biomedical_weight,
                 use_query_refinement=(
                     args.use_query_refinement
                 ),

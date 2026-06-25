@@ -13,6 +13,11 @@ function AdvancedPanel({
     || form.model === "agent"
   );
 
+  const showBiomedicalFusion = (
+    form.dataset === "clinical_trials"
+    && form.model === "hybrid_parallel"
+  );
+
   return (
     <section className="advanced-card">
       <details>
@@ -158,6 +163,23 @@ function AdvancedPanel({
                     )}
                   />
                 </label>
+
+                {showBiomedicalFusion ? (
+                  <label className="input-group">
+                    <span>Biomedical PubMedBERT Weight</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={form.biomedicalWeight}
+                      onChange={(event) => onFieldChange(
+                        "biomedicalWeight",
+                        event.target.value,
+                      )}
+                    />
+                  </label>
+                ) : null}
               </div>
             </div>
           ) : null}

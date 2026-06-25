@@ -9,6 +9,12 @@ from query_refinement.spelling_correction_service import (
 from retrieval.bm25_service import (
     BM25RetrievalService,
 )
+from retrieval.biomedical_embedding_service import (
+    BiomedicalEmbeddingService,
+)
+from retrieval.embedding_service import (
+    EmbeddingIndexError,
+)
 from retrieval.personalization_service import (
     PersonalizedQueryService,
 )
@@ -19,6 +25,9 @@ from retrieval.request_validation import (
 )
 from retrieval.search_history_store import (
     SearchHistoryStore,
+)
+from retrieval.hybrid_parallel_service import (
+    HybridParallelRetrievalService,
 )
 from retrieval.tfidf_service import (
     TfidfRetrievalService,
@@ -131,6 +140,64 @@ class SearchHistoryStoreTests(SimpleTestCase):
                     "neural ranking models",
                 ],
             )
+
+
+class BiomedicalModelDownloadTests(SimpleTestCase):
+    def test_download_script_excludes_bin_files(self):
+        from scripts import (
+            download_biomedical_embedding_model
+            as downloader,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+
+            with patch.object(
+                downloader,
+                "snapshot_download",
+                return_value=str(output_dir),
+            ) as mocked_snapshot_download:
+                downloader.download_model_snapshot(
+                    model_name=(
+                        "NeuML/"
+                        "pubmedbert-base-embeddings"
+                    ),
+                    output_dir=output_dir,
+                )
+
+        mocked_snapshot_download.assert_called_once()
+        self.assertEqual(
+            mocked_snapshot_download.call_args.kwargs[
+                "ignore_patterns"
+            ],
+            [
+                "*.bin",
+            ],
+        )
+
+    def test_model_validation_requires_safetensors(self):
+        from scripts import (
+            download_biomedical_embedding_model
+            as downloader,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            model_dir = Path(directory)
+            (
+                model_dir
+                / "config.json"
+            ).write_text(
+                "{}",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "model.safetensors",
+            ):
+                downloader.validate_local_model_directory(
+                    model_dir
+                )
 
 
 class PersonalizedQueryServiceTests(SimpleTestCase):
@@ -376,6 +443,189 @@ class LexicalRetrievalIntegrationTests(
             ),
             [],
         )
+
+
+class HybridParallelBiomedicalTests(SimpleTestCase):
+    @patch(
+        "retrieval.hybrid_parallel_service."
+        "BiomedicalEmbeddingService"
+    )
+    @patch(
+        "retrieval.hybrid_parallel_service."
+        "EmbeddingRetrievalService"
+    )
+    @patch(
+        "retrieval.hybrid_parallel_service."
+        "BM25RetrievalService"
+    )
+    @patch(
+        "retrieval.hybrid_parallel_service."
+        "TfidfRetrievalService"
+    )
+    def test_default_biomedical_weight_is_zero(
+        self,
+        mocked_tfidf_service,
+        mocked_bm25_service,
+        mocked_embedding_service,
+        mocked_biomedical_service,
+    ):
+        service = HybridParallelRetrievalService(
+            dataset_key="clinical_trials",
+        )
+
+        self.assertEqual(
+            service.model_weights["biomedical"],
+            0.0,
+        )
+
+        self.assertIsNone(
+            service.biomedical_service
+        )
+
+        mocked_tfidf_service.assert_called_once()
+        mocked_bm25_service.assert_called_once()
+        mocked_embedding_service.assert_called_once()
+        mocked_biomedical_service.assert_not_called()
+
+    @patch(
+        "retrieval.hybrid_parallel_service."
+        "BiomedicalEmbeddingService"
+    )
+    @patch(
+        "retrieval.hybrid_parallel_service."
+        "EmbeddingRetrievalService"
+    )
+    @patch(
+        "retrieval.hybrid_parallel_service."
+        "BM25RetrievalService"
+    )
+    @patch(
+        "retrieval.hybrid_parallel_service."
+        "TfidfRetrievalService"
+    )
+    def test_biomedical_service_participates_when_weight_is_positive(
+        self,
+        mocked_tfidf_service,
+        mocked_bm25_service,
+        mocked_embedding_service,
+        mocked_biomedical_service,
+    ):
+        service = HybridParallelRetrievalService(
+            dataset_key="clinical_trials",
+            biomedical_weight=1.5,
+        )
+
+        self.assertEqual(
+            service.biomedical_service,
+            mocked_biomedical_service.return_value,
+        )
+
+        mocked_tfidf_service.assert_called_once()
+        mocked_bm25_service.assert_called_once()
+        mocked_embedding_service.assert_called_once()
+        mocked_biomedical_service.assert_called_once()
+
+        active_model_names = [
+            model_name
+            for model_name, service_instance
+            in service._active_services()
+        ]
+
+        self.assertIn(
+            "biomedical",
+            active_model_names,
+        )
+
+    def test_biomedical_fusion_weight_is_hidden_until_enabled(
+        self,
+    ):
+        service = HybridParallelRetrievalService.__new__(
+            HybridParallelRetrievalService
+        )
+        service.rrf_k = 60
+        service.model_weights = {
+            "tfidf": 1.0,
+            "bm25": 1.0,
+            "embedding": 1.0,
+            "biomedical": 0.0,
+        }
+
+        results = service._weighted_reciprocal_rank_fusion(
+            {
+                "tfidf": [
+                    {
+                        "rank": 1,
+                        "doc_id": "DOC001",
+                        "title": "Title",
+                        "snippet": "Snippet",
+                        "score": 0.9,
+                    }
+                ],
+                "biomedical": [
+                    {
+                        "rank": 1,
+                        "doc_id": "DOC002",
+                        "title": "Bio title",
+                        "snippet": "Bio snippet",
+                        "score": 0.8,
+                    }
+                ],
+            }
+        )
+
+        self.assertNotIn(
+            "biomedical",
+            results[0]["fusion_weights"],
+        )
+
+        service.model_weights["biomedical"] = 2.0
+
+        results = service._weighted_reciprocal_rank_fusion(
+            {
+                "biomedical": [
+                    {
+                        "rank": 1,
+                        "doc_id": "DOC002",
+                        "title": "Bio title",
+                        "snippet": "Bio snippet",
+                        "score": 0.8,
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(
+            results[0]["fusion_weights"]["biomedical"],
+            2.0,
+        )
+
+        self.assertIn(
+            "biomedical",
+            results[0]["model_details"],
+        )
+
+
+class BiomedicalEmbeddingServiceTests(SimpleTestCase):
+    def test_manifest_model_name_must_match_configuration(self):
+        service = BiomedicalEmbeddingService.__new__(
+            BiomedicalEmbeddingService
+        )
+        service.dataset_key = "clinical_trials"
+        service.manifest = {
+            "index_type": "sentence_transformer_faiss",
+            "faiss_index_type": "flat",
+            "dataset": "clinical_trials",
+            "document_count": 1,
+            "embedding_dimension": 768,
+            "model_path": "artifacts/models/biomedical-embedding",
+            "model_name": "wrong/model",
+            "vectors_are_normalized": True,
+            "similarity": "cosine_via_inner_product",
+            "faiss_ntotal": 1,
+        }
+
+        with self.assertRaises(EmbeddingIndexError):
+            service._validate_manifest()
 
 
 class SearchAPITests(APITestCase):
@@ -990,6 +1240,100 @@ class SearchAPITests(APITestCase):
             response.data["error"],
         )
 
+    def test_biomedical_embedding_rejects_unsupported_dataset(
+        self,
+    ):
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "diabetes insulin",
+                "dataset": "quora",
+                "model": "biomedical_embedding",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+        self.assertIn(
+            "clinical_trials",
+            response.data["error"],
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
+    def test_biomedical_embedding_search_can_be_requested_for_clinical_trials(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.return_value = []
+
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "diabetes insulin treatment",
+                "dataset": "clinical_trials",
+                "model": "biomedical_embedding",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.data["model"],
+            "biomedical_embedding",
+        )
+
+        self.assertEqual(
+            mocked_run_search.call_args.kwargs["model"],
+            "biomedical_embedding",
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
+    def test_hybrid_parallel_accepts_optional_biomedical_weight(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.return_value = []
+
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "diabetes insulin treatment",
+                "dataset": "clinical_trials",
+                "model": "hybrid_parallel",
+                "top_k": 5,
+                "candidate_count": 10,
+                "biomedical_weight": 2.5,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.data["biomedical_weight"],
+            2.5,
+        )
+
+        self.assertEqual(
+            mocked_run_search.call_args.kwargs["biomedical_weight"],
+            2.5,
+        )
+
     def test_invalid_bm25_b_returns_400(self):
         response = self.client.post(
             self.search_url,
@@ -1079,6 +1423,7 @@ class SearchAPITests(APITestCase):
                 "tfidf",
                 "bm25",
                 "embedding",
+                "biomedical_embedding",
                 "hybrid_serial",
                 "hybrid_parallel",
             },

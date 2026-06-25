@@ -51,6 +51,7 @@ export async function searchDocuments(form) {
     tfidf_weight: Number(form.tfidfWeight),
     bm25_weight: Number(form.bm25Weight),
     embedding_weight: Number(form.embeddingWeight),
+    biomedical_weight: Number(form.biomedicalWeight),
     use_spelling_correction: Boolean(form.useSpellingCorrection),
     use_query_refinement: Boolean(form.useQueryRefinement),
     feedback_docs: Number(form.feedbackDocs),

@@ -48,13 +48,19 @@ class EmbeddingRetrievalService:
         use_saved_index: bool = True,
         device: str = "auto",
         model_path: Optional[str | Path] = None,
+        index_name: str = "embedding",
+        index_dir: Optional[str | Path] = None,
     ):
         self.dataset_key = str(dataset_key).strip()
         self.use_saved_index = bool(use_saved_index)
         self.device = self._resolve_device(device)
+        self.index_name = str(index_name).strip()
 
         if not self.dataset_key:
             raise ValueError("dataset_key cannot be empty.")
+
+        if not self.index_name:
+            raise ValueError("index_name cannot be empty.")
 
         indexes_root = Path(
             getattr(
@@ -64,7 +70,11 @@ class EmbeddingRetrievalService:
             )
         ).expanduser().resolve()
 
-        self.index_dir = indexes_root / self.dataset_key / "embedding"
+        self.index_dir = (
+            Path(index_dir).expanduser().resolve()
+            if index_dir is not None
+            else indexes_root / self.dataset_key / self.index_name
+        )
         self.manifest_path = self.index_dir / "manifest.json"
         self.faiss_index_path = self.index_dir / "faiss.index"
         self.doc_ids_path = self.index_dir / "doc_ids.joblib"

@@ -70,6 +70,7 @@ function App() {
         tfidf_weight: data.tfidf_weight,
         bm25_weight: data.bm25_weight,
         embedding_weight: data.embedding_weight,
+        biomedical_weight: data.biomedical_weight,
         fusion_method: data.fusion_method,
         use_query_refinement: data.use_query_refinement,
         feedback_docs: data.feedback_docs,

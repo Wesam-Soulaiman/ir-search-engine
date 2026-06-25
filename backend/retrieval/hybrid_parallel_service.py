@@ -1,6 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Tuple
 
+from retrieval.biomedical_embedding_service import (
+    BiomedicalEmbeddingService,
+)
 from retrieval.bm25_service import BM25RetrievalService
 from retrieval.embedding_service import EmbeddingRetrievalService
 from retrieval.tfidf_service import TfidfRetrievalService
@@ -21,6 +24,7 @@ class HybridParallelRetrievalService:
         "tfidf",
         "bm25",
         "embedding",
+        "biomedical",
     )
 
     def __init__(
@@ -33,6 +37,7 @@ class HybridParallelRetrievalService:
         tfidf_weight: float = 1.0,
         bm25_weight: float = 1.0,
         embedding_weight: float = 1.0,
+        biomedical_weight: float = 0.0,
         device: str = "auto",
     ):
         self.dataset_key = dataset_key
@@ -46,6 +51,7 @@ class HybridParallelRetrievalService:
             "tfidf": float(tfidf_weight),
             "bm25": float(bm25_weight),
             "embedding": float(embedding_weight),
+            "biomedical": float(biomedical_weight),
         }
 
         self._validate_weights()
@@ -53,6 +59,7 @@ class HybridParallelRetrievalService:
         self.tfidf_service = None
         self.bm25_service = None
         self.embedding_service = None
+        self.biomedical_service = None
 
         if self.model_weights["tfidf"] > 0:
             self.tfidf_service = TfidfRetrievalService(
@@ -68,6 +75,19 @@ class HybridParallelRetrievalService:
 
         if self.model_weights["embedding"] > 0:
             self.embedding_service = EmbeddingRetrievalService(
+                dataset_key=dataset_key,
+                use_saved_index=True,
+                device=device,
+            )
+
+        if self.model_weights["biomedical"] > 0:
+            if self.dataset_key != "clinical_trials":
+                raise ValueError(
+                    "biomedical_weight can only be used with the "
+                    "clinical_trials dataset."
+                )
+
+            self.biomedical_service = BiomedicalEmbeddingService(
                 dataset_key=dataset_key,
                 use_saved_index=True,
                 device=device,
@@ -90,6 +110,7 @@ class HybridParallelRetrievalService:
             "tfidf": self.tfidf_service,
             "bm25": self.bm25_service,
             "embedding": self.embedding_service,
+            "biomedical": self.biomedical_service,
         }
 
         return [
@@ -103,6 +124,20 @@ class HybridParallelRetrievalService:
                 and services[model_name] is not None
             )
         ]
+
+    def _visible_fusion_weights(self) -> Dict[str, float]:
+        fusion_weights = {
+            "tfidf": self.model_weights["tfidf"],
+            "bm25": self.model_weights["bm25"],
+            "embedding": self.model_weights["embedding"],
+        }
+
+        if self.model_weights.get("biomedical", 0.0) > 0:
+            fusion_weights["biomedical"] = self.model_weights[
+                "biomedical"
+            ]
+
+        return fusion_weights
 
     @staticmethod
     def _normalize_queries(
@@ -355,7 +390,7 @@ class HybridParallelRetrievalService:
                 ),
                 "fusion_method": "Weighted RRF",
                 "rrf_k": self.rrf_k,
-                "fusion_weights": self.model_weights,
+                "fusion_weights": self._visible_fusion_weights(),
                 "model_details": model_details.get(
                     doc_id,
                     {},

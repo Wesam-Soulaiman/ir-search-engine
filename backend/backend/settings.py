@@ -278,6 +278,21 @@ ARTIFACTS_DIR = env_path(
     PROJECT_ROOT / "artifacts",
 )
 
+BIOMEDICAL_EMBEDDING_MODEL_NAME = os.getenv(
+    "IR_BIOMEDICAL_EMBEDDING_MODEL_NAME",
+    "NeuML/pubmedbert-base-embeddings",
+)
+
+BIOMEDICAL_EMBEDDING_MODEL_PATH = env_path(
+    "IR_BIOMEDICAL_EMBEDDING_MODEL_PATH",
+    ARTIFACTS_DIR / "models" / "biomedical-embedding",
+)
+
+BIOMEDICAL_EMBEDDING_INDEX_DIR = env_path(
+    "IR_BIOMEDICAL_EMBEDDING_INDEX_DIR",
+    INDEXES_DIR / "clinical_trials" / "biomedical_embedding",
+)
+
 
 # When enabled, Hugging Face and Transformers are prohibited from
 # downloading models. They must load from local cache/artifacts.
