@@ -20,6 +20,9 @@ from document_store.repository import (
 from query_refinement.pseudo_relevance_feedback import (
     PseudoRelevanceFeedbackService,
 )
+from query_refinement.spelling_correction_service import (
+    SpellingCorrectionService,
+)
 from retrieval.bm25_service import (
     BM25RetrievalService,
 )
@@ -101,6 +104,7 @@ MAX_RAW_TEXT_RESULTS = 50
 DEFAULT_MAX_PERSONALIZATION_TERMS = 3
 MAX_PERSONALIZATION_TERMS = 20
 DEFAULT_PERSONALIZATION_HISTORY_LIMIT = 20
+DEFAULT_USE_SPELLING_CORRECTION = False
 
 
 @lru_cache(maxsize=4)
@@ -222,6 +226,15 @@ def get_personalized_query_service(
     return PersonalizedQueryService(
         dataset_key=dataset_key,
         max_personalization_terms=max_personalization_terms,
+    )
+
+
+@lru_cache(maxsize=4)
+def get_spelling_correction_service(
+    dataset_key: str,
+):
+    return SpellingCorrectionService(
+        dataset_key=dataset_key,
     )
 
 
@@ -428,6 +441,14 @@ def parse_search_request(
         field_name="use_query_refinement",
     )
 
+    use_spelling_correction = parse_boolean(
+        value=request_data.get(
+            "use_spelling_correction",
+            DEFAULT_USE_SPELLING_CORRECTION,
+        ),
+        field_name="use_spelling_correction",
+    )
+
     feedback_docs = parse_integer(
         value=request_data.get(
             "feedback_docs"
@@ -534,6 +555,9 @@ def parse_search_request(
         "embedding_weight": embedding_weight,
         "use_query_refinement": (
             use_query_refinement
+        ),
+        "use_spelling_correction": (
+            use_spelling_correction
         ),
         "feedback_docs": feedback_docs,
         "expansion_terms": expansion_terms,
@@ -799,39 +823,44 @@ def search_view(request):
         )
 
         original_query = parameters["query"]
-        refined_query = original_query
+        corrected_query = original_query
         personalized_query = original_query
+        refined_query = original_query
+        retrieval_query = original_query
+        spelling_corrections = []
+        spelling_correction_used = False
         personalization_terms = []
         personalization_used = False
 
-        if parameters["use_query_refinement"]:
-            refinement_service = (
-                get_query_refinement_service(
-                    dataset_key=(
-                        parameters["dataset_key"]
-                    ),
-                    bm25_k1=(
-                        parameters["bm25_k1"]
-                    ),
-                    bm25_b=(
-                        parameters["bm25_b"]
-                    ),
-                    feedback_docs=(
-                        parameters["feedback_docs"]
-                    ),
-                    expansion_terms=(
-                        parameters["expansion_terms"]
-                    ),
+        if parameters["use_spelling_correction"]:
+            spelling_service = (
+                get_spelling_correction_service(
+                    parameters["dataset_key"]
                 )
             )
 
-            refined_query = (
-                refinement_service.refine(
-                    original_query
-                )
+            spelling_result = spelling_service.correct(
+                original_query
             )
 
-        personalized_query = refined_query
+            corrected_query = str(
+                spelling_result["corrected_query"]
+            )
+
+            spelling_corrections = list(
+                spelling_result[
+                    "spelling_corrections"
+                ]
+            )
+
+            spelling_correction_used = bool(
+                spelling_result[
+                    "spelling_correction_used"
+                ]
+            )
+
+        retrieval_query = corrected_query
+        personalized_query = retrieval_query
 
         if (
             parameters["use_personalization"]
@@ -860,7 +889,7 @@ def search_view(request):
 
             personalization_result = (
                 personalization_service.personalize(
-                    query=refined_query,
+                    query=retrieval_query,
                     previous_queries=previous_queries,
                 )
             )
@@ -880,6 +909,43 @@ def search_view(request):
             personalization_used = bool(
                 personalization_terms
             )
+
+        retrieval_query = personalized_query
+
+        if parameters["use_query_refinement"]:
+            refinement_service = (
+                get_query_refinement_service(
+                    dataset_key=(
+                        parameters["dataset_key"]
+                    ),
+                    bm25_k1=(
+                        parameters["bm25_k1"]
+                    ),
+                    bm25_b=(
+                        parameters["bm25_b"]
+                    ),
+                    feedback_docs=(
+                        parameters["feedback_docs"]
+                    ),
+                    expansion_terms=(
+                        parameters["expansion_terms"]
+                    ),
+                )
+            )
+
+            refined_query = (
+                refinement_service.refine(
+                    retrieval_query
+                )
+            )
+
+            retrieval_query = refined_query
+
+        else:
+            refined_query = original_query
+
+        if not parameters["use_personalization"]:
+            personalized_query = corrected_query
 
         agent_resolution = resolve_agent_model(
             requested_model=parameters["model"],
@@ -924,7 +990,7 @@ def search_view(request):
             dataset_key=(
                 parameters["dataset_key"]
             ),
-            query=personalized_query,
+            query=retrieval_query,
             top_k=parameters["top_k"],
             bm25_k1=parameters["bm25_k1"],
             bm25_b=parameters["bm25_b"],
@@ -987,8 +1053,18 @@ def search_view(request):
         )
 
         return Response({
-            "query": personalized_query,
+            "query": retrieval_query,
             "original_query": original_query,
+            "corrected_query": corrected_query,
+            "spelling_correction_used": (
+                spelling_correction_used
+            ),
+            "spelling_corrections": (
+                spelling_corrections
+            ),
+            "use_spelling_correction": parameters[
+                "use_spelling_correction"
+            ],
             "refined_query": refined_query,
             "personalized_query": personalized_query,
             "personalization_terms": (

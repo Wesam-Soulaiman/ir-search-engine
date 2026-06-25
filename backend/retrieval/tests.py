@@ -3,6 +3,9 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 from rest_framework.test import APITestCase
 
+from query_refinement.spelling_correction_service import (
+    SpellingCorrectionService,
+)
 from retrieval.bm25_service import (
     BM25RetrievalService,
 )
@@ -156,6 +159,123 @@ class PersonalizedQueryServiceTests(SimpleTestCase):
                 "neural",
                 "network",
             ],
+        )
+
+
+class SpellingCorrectionServiceTests(SimpleTestCase):
+    def test_corrects_misspelled_query_terms(self):
+        service = SpellingCorrectionService(
+            dataset_key="sample_dataset",
+            vocabulary=[
+                "diabetes",
+                "insulin",
+                "treatment",
+            ],
+        )
+
+        result = service.correct(
+            "diabtes inslin tretment"
+        )
+
+        self.assertEqual(
+            result["corrected_query"],
+            "diabetes insulin treatment",
+        )
+
+        self.assertTrue(
+            result["spelling_correction_used"]
+        )
+
+        self.assertEqual(
+            result["spelling_corrections"],
+            [
+                {
+                    "original": "diabtes",
+                    "corrected": "diabetes",
+                },
+                {
+                    "original": "inslin",
+                    "corrected": "insulin",
+                },
+                {
+                    "original": "tretment",
+                    "corrected": "treatment",
+                },
+            ],
+        )
+
+    def test_preserves_biomedical_tokens(self):
+        service = SpellingCorrectionService(
+            dataset_key="clinical_trials",
+            vocabulary=[
+                "diabetes",
+                "insulin",
+                "treatment",
+            ],
+        )
+
+        result = service.correct(
+            "BRAF HER2 V600E diabtes"
+        )
+
+        self.assertEqual(
+            result["corrected_query"],
+            "BRAF HER2 V600E diabetes",
+        )
+
+        self.assertEqual(
+            result["spelling_corrections"],
+            [
+                {
+                    "original": "diabtes",
+                    "corrected": "diabetes",
+                },
+            ],
+        )
+
+    def test_uses_natural_surface_words_not_stems(self):
+        service = SpellingCorrectionService(
+            dataset_key="sample_dataset",
+            vocabulary=[
+                "english",
+                "language",
+                "learn",
+            ],
+        )
+
+        result = service.correct(
+            "how to lern english langauge"
+        )
+
+        self.assertEqual(
+            result["corrected_query"],
+            "how to learn english language",
+        )
+
+        self.assertNotIn(
+            "langaug",
+            result["corrected_query"],
+        )
+
+    def test_corrects_common_quora_like_typos(self):
+        service = SpellingCorrectionService(
+            dataset_key="quora",
+            vocabulary=[
+                "what",
+                "best",
+                "way",
+                "learn",
+                "programming",
+            ],
+        )
+
+        result = service.correct(
+            "whatt is the best waay to lern programing"
+        )
+
+        self.assertEqual(
+            result["corrected_query"],
+            "what is the best way to learn programming",
         )
 
 
@@ -405,6 +525,148 @@ class SearchAPITests(APITestCase):
     @patch(
         "retrieval.views.run_search"
     )
+    def test_spelling_correction_disabled_by_default(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.return_value = []
+
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "machne learnng",
+                "dataset": "sample_dataset",
+                "model": "bm25",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertFalse(
+            response.data["use_spelling_correction"]
+        )
+
+        self.assertFalse(
+            response.data["spelling_correction_used"]
+        )
+
+        self.assertEqual(
+            response.data["corrected_query"],
+            "machne learnng",
+        )
+
+        self.assertEqual(
+            response.data["spelling_corrections"],
+            [],
+        )
+
+        self.assertEqual(
+            mocked_run_search.call_args.kwargs["query"],
+            "machne learnng",
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
+    def test_spelling_correction_can_be_enabled(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.return_value = []
+
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "machne learnng",
+                "dataset": "sample_dataset",
+                "model": "bm25",
+                "use_spelling_correction": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertTrue(
+            response.data["use_spelling_correction"]
+        )
+
+        self.assertTrue(
+            response.data["spelling_correction_used"]
+        )
+
+        self.assertEqual(
+            response.data["corrected_query"],
+            "machine learning",
+        )
+
+        self.assertEqual(
+            response.data["spelling_corrections"],
+            [
+                {
+                    "original": "machne",
+                    "corrected": "machine",
+                },
+                {
+                    "original": "learnng",
+                    "corrected": "learning",
+                },
+            ],
+        )
+
+        self.assertEqual(
+            response.data["query"],
+            "machine learning",
+        )
+
+        self.assertEqual(
+            mocked_run_search.call_args.kwargs["query"],
+            "machine learning",
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
+    def test_search_api_works_without_spelling_flag(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.return_value = []
+
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "machine learning",
+                "dataset": "sample_dataset",
+                "model": "bm25",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertFalse(
+            response.data["use_spelling_correction"]
+        )
+
+        self.assertEqual(
+            response.data["query"],
+            "machine learning",
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
     def test_personalization_disabled_by_default(
         self,
         mocked_run_search,
@@ -525,6 +787,66 @@ class SearchAPITests(APITestCase):
                 "neural",
                 "network",
             ],
+        )
+
+        self.assertEqual(
+            response.data["personalized_query"],
+            "machine learning neural network",
+        )
+
+        self.assertEqual(
+            mocked_run_search.call_args.kwargs["query"],
+            "machine learning neural network",
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
+    def test_personalization_runs_after_spelling_correction(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.return_value = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            history_store = SearchHistoryStore(
+                Path(directory)
+                / "search_history.sqlite3"
+            )
+
+            history_store.record_query(
+                user_id="session-4",
+                dataset="sample_dataset",
+                query="neural network learning",
+            )
+
+            with patch(
+                "retrieval.views."
+                "get_search_history_store",
+                return_value=history_store,
+            ):
+                response = self.client.post(
+                    self.search_url,
+                    {
+                        "query": "machne learning",
+                        "dataset": "sample_dataset",
+                        "model": "bm25",
+                        "user_id": "session-4",
+                        "use_spelling_correction": True,
+                        "use_personalization": True,
+                        "max_personalization_terms": 2,
+                    },
+                    format="json",
+                )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.data["corrected_query"],
+            "machine learning",
         )
 
         self.assertEqual(

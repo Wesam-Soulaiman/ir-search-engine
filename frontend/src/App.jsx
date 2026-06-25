@@ -49,6 +49,10 @@ function App() {
       setResponseInfo({
         query: data.query,
         original_query: data.original_query,
+        corrected_query: data.corrected_query,
+        use_spelling_correction: data.use_spelling_correction,
+        spelling_correction_used: data.spelling_correction_used,
+        spelling_corrections: data.spelling_corrections,
         refined_query: data.refined_query,
         dataset: data.dataset,
         requested_model: data.requested_model || data.model,

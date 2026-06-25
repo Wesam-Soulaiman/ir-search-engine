@@ -77,6 +77,7 @@ export const DEFAULT_SEARCH_FORM = {
   tfidfWeight: 1.0,
   bm25Weight: 1.0,
   embeddingWeight: 1.0,
+  useSpellingCorrection: false,
   useQueryRefinement: false,
   feedbackDocs: 3,
   expansionTerms: 5,

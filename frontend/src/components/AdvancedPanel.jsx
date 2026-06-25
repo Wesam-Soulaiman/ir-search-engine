@@ -166,6 +166,21 @@ function AdvancedPanel({
             <label className="switch-card">
               <input
                 type="checkbox"
+                checked={form.useSpellingCorrection}
+                onChange={(event) => onFieldChange(
+                  "useSpellingCorrection",
+                  event.target.checked,
+                )}
+              />
+              <span>
+                <strong>Spelling correction</strong>
+                <small>Offline conservative query cleanup</small>
+              </span>
+            </label>
+
+            <label className="switch-card">
+              <input
+                type="checkbox"
                 checked={form.useQueryRefinement}
                 onChange={(event) => onFieldChange(
                   "useQueryRefinement",

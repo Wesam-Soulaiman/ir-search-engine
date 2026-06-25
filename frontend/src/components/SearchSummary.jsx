@@ -54,6 +54,19 @@ function SearchSummary({
         </div>
       ) : null}
 
+      {info.spelling_correction_used ? (
+        <div className="summary-note">
+          <span>Corrected query</span>
+          <p>
+            {info.corrected_query}
+            {" | "}
+            Corrections: {(info.spelling_corrections || [])
+              .map((item) => `${item.original} -> ${item.corrected}`)
+              .join(", ")}
+          </p>
+        </div>
+      ) : null}
+
       {info.personalization_used ? (
         <div className="summary-note">
           <span>Personalized query</span>
