@@ -1,839 +1,634 @@
-# Information Retrieval Search Engine
+# IR Search Engine
 
-A full-stack Information Retrieval system built with **Django REST Framework** and **React**.
-The project supports large-scale offline search over two real datasets, multiple retrieval models, query refinement, hybrid retrieval, FAISS vector search, document clustering, topic detection, and an automatic retrieval strategy agent.
+A full Information Retrieval search engine built with **Django REST Framework** and **React**.
+The system supports multiple retrieval models, large-scale indexing, hybrid ranking, query refinement, biomedical retrieval, distributed retrieval simulation, and supervised Learning-to-Rank reranking.
 
----
-
-## 1. Project Overview
-
-This project implements a complete Information Retrieval pipeline:
-
-* Dataset loading and preprocessing
-* Offline raw document storage
-* Efficient indexing
-* Multiple retrieval models
-* Hybrid retrieval
-* Query refinement
-* Evaluation using official qrels
-* REST API
-* Dark-mode React interface
-* Additional IR features integrated into the system
-
-The system is designed to run locally and offline after the required datasets, indexes, and models are prepared.
+This project was built as a final-year Information Retrieval project and includes complete indexing, searching, evaluation, and a web interface.
 
 ---
 
-## 2. Supported Datasets
+## Features
 
-The system currently supports two datasets.
+### Retrieval Models
 
-| Dataset           |                      Domain | Approx. Documents | Purpose                                             |
-| ----------------- | --------------------------: | ----------------: | --------------------------------------------------- |
-| `quora`           |           General questions |           522,931 | General natural-language question retrieval         |
-| `clinical_trials` | Biomedical / medical trials |           241,006 | Clinical-trial and biomedical information retrieval |
+The system supports the following retrieval models:
 
-Each dataset has its own:
+* **TF-IDF / Vector Space Model**
+* **BM25**
+* **Dense Embedding Retrieval**
 
-* corpus
-* queries
-* qrels
-* preprocessing configuration
-* indexes
-* evaluation reports
+  * Sentence Transformers
+  * FAISS vector search
+* **Hybrid Serial Retrieval**
 
-Retrieval and evaluation are dataset-scoped. The user selects one dataset before searching to avoid mixing different domains and to keep evaluation consistent with the dataset qrels.
+  * BM25 candidate generation
+  * Embedding reranking
+* **Hybrid Parallel Retrieval**
 
----
+  * TF-IDF, BM25, and Embedding search in parallel
+  * Weighted Reciprocal Rank Fusion
+* **Biomedical PubMedBERT Retrieval**
 
-## 3. Main Features
+  * Clinical Trials only
+  * Biomedical embedding model
+  * FAISS vector index
+* **Distributed BM25**
 
-### Core Requirements
+  * Local distributed IR simulation
+  * Corpus split into multiple shards
+  * Coordinator queries all shards
+  * Results merged using RRF
+* **Learning-to-Rank (LTR)**
 
-* Full corpus retrieval over two datasets
-* Text preprocessing
-* TF-IDF retrieval
-* BM25 retrieval
-* Embedding retrieval
-* Hybrid Serial retrieval
-* Hybrid Parallel retrieval
-* Query refinement using pseudo-relevance feedback
-* Evaluation with MAP, Precision@10, Recall, and nDCG
-* Web interface for search and parameter control
-* REST API
-* Original raw document display from the local document store
-
-### Additional Features
-
-* FAISS Vector Store
-* Document Clustering
-* Topic Detection
-* Retrieval Strategy Agent
-* Weighted Hybrid Fusion controls
-* Charts for cluster/topic analysis
-* Dark-mode interactive frontend
+  * Candidate generation from BM25, TF-IDF, Embedding, and optionally Biomedical retrieval
+  * Feature extraction
+  * Supervised ML reranking using qrels
+  * Trained model loaded from disk
 
 ---
 
-## 4. Architecture
+## Extra IR Features
 
-The project follows a service-oriented structure. Each major responsibility is separated into its own module.
+The system also includes:
 
-```text
-ir-search-engine/
-├── backend/
-│   ├── agents/
-│   │   └── retrieval_strategy_agent.py
-│   ├── clustering/
-│   │   └── clustering_service.py
-│   ├── datasets/
-│   │   ├── dataset_loader.py
-│   │   └── dataset_registry.py
-│   ├── document_store/
-│   │   └── repository.py
-│   ├── evaluation/
-│   │   └── evaluator.py
-│   ├── indexing/
-│   │   ├── scalable_tfidf_index.py
-│   │   ├── scalable_bm25_index.py
-│   │   └── scalable_embedding_index.py
-│   ├── preprocessing/
-│   │   └── text_preprocessor.py
-│   ├── query_refinement/
-│   │   └── pseudo_relevance_feedback.py
-│   ├── retrieval/
-│   │   ├── views.py
-│   │   ├── urls.py
-│   │   ├── topic_views.py
-│   │   ├── tfidf_service.py
-│   │   ├── bm25_service.py
-│   │   ├── embedding_service.py
-│   │   ├── hybrid_serial_service.py
-│   │   └── hybrid_parallel_service.py
-│   └── scripts/
-│       ├── build_scalable_tfidf_index.py
-│       ├── build_scalable_bm25_index.py
-│       ├── build_scalable_embedding_index.py
-│       ├── build_document_clusters.py
-│       ├── build_cluster_topics.py
-│       └── run_all_evaluations.py
-├── frontend/
-│   └── src/
-│       ├── api/
-│       ├── components/
-│       ├── config/
-│       ├── App.jsx
-│       └── App.css
-├── artifacts/
-├── data/
-├── indexes/
-├── reports/
-└── README.md
-```
+* Query preprocessing
+* Dataset-aware normalization
+* Pseudo Relevance Feedback
+* Offline spelling correction
+* Search personalization using local search history
+* Topic detection
+* Document clustering
+* Rule-based search agent
+* Evaluation using standard IR metrics
+* React UI with advanced search controls
 
 ---
 
-## 5. Data Storage and Caching
+## Datasets
 
-The system uses offline artifacts to avoid loading or processing the entire corpus on every request.
+The project supports two large datasets:
 
-### Raw Document Store
+### 1. Quora
 
-Original documents are stored in a local SQLite database:
+* Documents: more than 500,000
+* Queries: 10,000
+* Qrels: available
+* Main use case: general question retrieval
 
-```text
-artifacts/database/corpus.sqlite3
-```
+### 2. Clinical Trials
 
-The search API enriches ranked document IDs with:
-
-* `doc_id`
-* title
-* snippet
-* raw text if requested
-* document source metadata
-
-### Indexes
-
-Indexes are stored under:
-
-```text
-indexes/<dataset>/
-```
-
-Examples:
-
-```text
-indexes/quora/tfidf/
-indexes/quora/bm25/
-indexes/quora/embedding/
-indexes/clinical_trials/tfidf/
-indexes/clinical_trials/bm25/
-indexes/clinical_trials/embedding/
-```
-
-### Caching
-
-The API uses cached service constructors so expensive retrieval services are not reloaded on every request.
-
-Examples:
-
-* TF-IDF service cache
-* BM25 service cache
-* Embedding service cache
-* Hybrid retrieval service cache
-* Query refinement service cache
-* Retrieval strategy agent cache
+* Documents: more than 240,000
+* Queries: 50
+* Qrels: available
+* Main use case: biomedical / clinical search
 
 ---
 
-## 6. Preprocessing
+## Evaluation Metrics
 
-The preprocessing layer is dataset-aware.
+The project evaluates models using:
+
+* MAP
+* Precision@10
+* Recall@K
+* nDCG@10
+* Query time
+* Queries per second
+
+---
+
+## Latest Evaluation Results
 
 ### Quora
 
-Quora contains short general-language questions, so preprocessing focuses on:
-
-* lowercasing
-* tokenization
-* stopword handling
-* stemming
-* preserving meaningful negations
-
-### Clinical Trials
-
-Clinical Trials contains biomedical terminology, so preprocessing is more conservative:
-
-* biomedical terms are preserved
-* short medical tokens are kept when useful
-* aggressive stemming is avoided
-* terms such as gene names, mutations, and drug expressions are preserved where possible
-
-This distinction is important because medical retrieval often depends on exact biomedical terms.
-
----
-
-## 7. Retrieval Models
-
-### 7.1 TF-IDF
-
-TF-IDF is the lexical Vector Space Model baseline.
-
-It represents documents and queries as weighted term vectors and ranks documents using similarity between the query vector and document vectors.
-
-Use case:
-
-* strong lexical baseline
-* useful for exact vocabulary overlap
-* interpretable term-based retrieval
-
----
-
-### 7.2 BM25
-
-BM25 is a probabilistic lexical retrieval model.
-
-It is especially strong for Clinical Trials because exact biomedical terms are often important.
-
-Main parameters:
-
-| Parameter | Meaning                                |
-| --------- | -------------------------------------- |
-| `bm25_k1` | controls term-frequency saturation     |
-| `bm25_b`  | controls document-length normalization |
-
-Default values:
-
-```text
-bm25_k1 = 1.5
-bm25_b = 0.75
-```
-
----
-
-### 7.3 Embedding Retrieval
-
-Embedding retrieval uses dense vector representations and FAISS indexes.
-
-The system uses a local saved embedding model and saved FAISS indexes so it can run offline after setup.
-
-Use case:
-
-* semantic retrieval
-* useful when query and document use different words with similar meaning
-* important for general natural-language search
-
----
-
-### 7.4 Hybrid Serial Retrieval
-
-Hybrid Serial retrieval works in two stages:
-
-```text
-Stage 1: BM25 retrieves candidate documents.
-Stage 2: Embedding retrieval reranks the BM25 candidates.
-```
-
-This combines lexical candidate selection with semantic reranking.
-
-This is useful when:
-
-* exact terms matter
-* semantic similarity is still needed
-* the search space should be reduced before embedding reranking
-
----
-
-### 7.5 Hybrid Parallel Retrieval
-
-Hybrid Parallel retrieval runs multiple retrieval models independently:
-
-```text
-TF-IDF
-BM25
-Embedding
-```
-
-Then it fuses the ranked lists using Reciprocal Rank Fusion.
-
-The current system supports **Weighted RRF**, so each retrieval model can have a different influence.
-
-Weighted RRF:
-
-```text
-final_score(document) += model_weight / (rrf_k + rank_in_model)
-```
-
-Available weights:
-
-```text
-tfidf_weight
-bm25_weight
-embedding_weight
-```
-
-This allows the user to control the fusion behavior from the frontend.
-
-Examples:
-
-* increase `bm25_weight` for stronger lexical exact-match influence
-* increase `embedding_weight` for stronger semantic influence
-* increase `tfidf_weight` to strengthen the vector-space baseline contribution
-
----
-
-## 8. Query Refinement
-
-The system supports pseudo-relevance feedback.
-
-When query refinement is enabled:
-
-1. BM25 retrieves initial feedback documents.
-2. Important terms are extracted from the top feedback documents.
-3. The original query is expanded with selected terms.
-4. The selected retrieval model runs using the refined query.
-
-Parameters:
-
-| Parameter              | Meaning                                   |
-| ---------------------- | ----------------------------------------- |
-| `use_query_refinement` | enable or disable PRF                     |
-| `feedback_docs`        | number of top documents used for feedback |
-| `expansion_terms`      | number of terms added to the query        |
-
-Query refinement is useful as an enhancement, but it may also cause query drift, especially in specialized domains. Therefore, the system exposes it as an optional setting.
-
----
-
-## 9. Retrieval Strategy Agent
-
-The project includes a lightweight rule-based retrieval strategy agent.
-
-The agent chooses the retrieval model based on:
-
-* dataset
-* query length
-* query language
-* domain characteristics
-
-Example behavior:
-
-| Case                       | Agent Decision                                                             |
-| -------------------------- | -------------------------------------------------------------------------- |
-| Clinical Trials query      | BM25                                                                       |
-| Short Quora query          | Hybrid Serial                                                              |
-| Longer general Quora query | Embedding                                                                  |
-| Arabic query               | Multilingual mode, with fallback until multilingual service is implemented |
-
-The API exposes this through:
-
-```text
-model = agent
-```
-
-The response includes:
-
-```text
-requested_model
-executed_model
-agent_selected_model
-agent_reason
-agent_features
-agent_fallback
-```
-
-This makes the decision explainable in the interface.
-
----
-
-## 10. Document Clustering
-
-The project includes document clustering as an additional feature.
-
-The clustering pipeline uses saved document embeddings and MiniBatchKMeans to group similar documents.
-
-Generated reports:
-
-```text
-reports/clustering/quora_cluster_summary.csv
-reports/clustering/clinical_trials_cluster_summary.csv
-```
-
-The API exposes clustering results:
-
-```text
-GET /api/clusters/quora/
-GET /api/clusters/clinical_trials/
-```
-
-The frontend displays:
-
-* cluster IDs
-* document counts
-* representative document IDs
-* bar charts for cluster size distribution
-
-Purpose:
-
-* understand corpus structure
-* inspect dominant groups of documents
-* support exploratory analysis beyond ranked search
-
----
-
-## 11. Topic Detection
-
-Topic detection labels the document clusters using representative terms.
-
-Generated reports:
-
-```text
-reports/topics/quora_cluster_topics.csv
-reports/topics/clinical_trials_cluster_topics.csv
-```
-
-The API exposes topic detection results:
-
-```text
-GET /api/topics/quora/
-GET /api/topics/clinical_trials/
-```
-
-The frontend displays:
-
-* topic labels
-* top terms
-* document counts
-* representative documents
-* topic size charts
-
-Purpose:
-
-* explain what each cluster represents
-* make clustering interpretable
-* support visual analysis of the corpus
-
----
-
-## 12. Evaluation
-
-Evaluation is performed using the official query and qrels files for each dataset.
-
-The evaluator does not use manually invented queries.
-It evaluates the retrieval models using the dataset qrels.
-
-Metrics:
-
-| Metric       | Meaning                                       |
-| ------------ | --------------------------------------------- |
-| MAP          | Mean Average Precision                        |
-| Precision@10 | Precision in top 10 results                   |
-| Recall       | Fraction of relevant documents retrieved      |
-| nDCG         | Ranking quality with graded position discount |
-
----
-
-## 13. Evaluation Results
-
-### Quora
-
-| Model           |      MAP |     P@10 |   Recall |     nDCG |      Time |
-| --------------- | -------: | -------: | -------: | -------: | --------: |
-| TF-IDF          | 0.689935 | 0.111890 | 0.952802 | 0.731330 |  106.097s |
-| BM25            | 0.720676 | 0.116750 | 0.963569 | 0.761794 |  225.972s |
-| Embedding       | 0.794472 | 0.128190 | 0.979004 | 0.831295 |  152.174s |
-| Hybrid Serial   | 0.839377 | 0.132550 | 0.987909 | 0.872116 |  695.127s |
-| Hybrid Parallel | 0.774977 | 0.124330 | 0.988270 | 0.813707 | 8468.611s |
-
-Best Quora result:
-
-```text
-Hybrid Serial achieved the best MAP and nDCG on Quora.
-```
+| Model           |      MAP | Precision@10 |   Recall |  nDCG@10 |
+| --------------- | -------: | -----------: | -------: | -------: |
+| TF-IDF          | 0.689935 |     0.111890 | 0.952802 | 0.731330 |
+| BM25            | 0.720676 |     0.116750 | 0.963569 | 0.761794 |
+| Embedding       | 0.794472 |     0.128190 | 0.979004 | 0.831295 |
+| Hybrid Parallel | 0.774977 |     0.124330 | 0.988270 | 0.813707 |
+| Hybrid Serial   | 0.839377 |     0.132550 | 0.987909 | 0.872116 |
+| LTR             | 0.824619 |     0.131600 | 0.997103 | 0.860768 |
+
+Notes:
+
+* LTR was fully trained on Quora.
+* LTR evaluation was completed over 10,000 queries.
+* LTR used candidate_count = 500.
+* LTR achieved very strong performance and the highest recall among the listed Quora configurations.
 
 ---
 
 ### Clinical Trials
 
-| Model           |      MAP |  P@10 |   Recall |     nDCG |     Time |
-| --------------- | -------: | ----: | -------: | -------: | -------: |
-| TF-IDF          | 0.123258 | 0.272 | 0.318945 | 0.233755 |        - |
-| BM25            | 0.227589 | 0.440 | 0.410081 | 0.419820 |   5.071s |
-| Embedding       | 0.017345 | 0.092 | 0.068110 | 0.071522 |   2.119s |
-| Hybrid Serial   | 0.030604 | 0.110 | 0.144656 | 0.079190 |  16.570s |
-| Hybrid Parallel | 0.158198 | 0.352 | 0.360931 | 0.304596 | 114.286s |
+| Model               |      MAP | Precision@10 |   Recall |  nDCG@10 |
+| ------------------- | -------: | -----------: | -------: | -------: |
+| BM25                | 0.265665 |        0.440 | 0.742024 | 0.419820 |
+| Distributed BM25    | 0.251163 |        0.438 | 0.740266 | 0.385522 |
+| Hybrid + Biomedical | 0.199293 |        0.364 | 0.719760 | 0.320801 |
+| LTR                 | 0.352012 |        0.550 | 0.785058 | 0.570328 |
 
-Best Clinical Trials result:
+Notes:
 
-```text
-BM25 achieved the best MAP, Precision@10, and nDCG on Clinical Trials.
-```
-
-This makes sense because Clinical Trials contains specialized biomedical terminology where exact term matching is highly important.
+* LTR achieved the best Clinical Trials results among the tested configurations.
+* Distributed BM25 preserved results close to centralized BM25 while demonstrating a distributed retrieval architecture.
+* Biomedical PubMedBERT improved the system with a domain-specific retrieval component.
 
 ---
 
-## 14. Backend Setup
+## Architecture
 
-### 14.1 Create and activate virtual environment
+The project follows a **modular Service-Oriented Architecture** inside a Django backend.
+
+Each major retrieval component is implemented as a separate service module with a clear responsibility.
+
+```text
+React Frontend
+    |
+    v
+Django REST API
+    |
+    v
+Search Controller / API View
+    |
+    +--> TF-IDF Service
+    +--> BM25 Service
+    +--> Embedding Service
+    +--> Biomedical Embedding Service
+    +--> Hybrid Serial Service
+    +--> Hybrid Parallel Service
+    +--> Distributed BM25 Service
+    +--> LTR Service
+    +--> Query Refinement Services
+    +--> Evaluation Service
+    |
+    v
+Indexes / FAISS / SQLite Document Store / Model Artifacts
+```
+
+The current implementation is a modular SOA inside one backend application.
+It can be extended into full microservices by exposing each retrieval service as an independent REST or gRPC service.
+
+---
+
+## Main Backend Components
+
+```text
+backend/
+  evaluation/
+    evaluator.py
+
+  indexing/
+    distributed_bm25_index.py
+    ...
+
+  query_refinement/
+    spelling_correction_service.py
+    ...
+
+  retrieval/
+    bm25_service.py
+    tfidf_service.py
+    embedding_service.py
+    biomedical_embedding_service.py
+    hybrid_serial_service.py
+    hybrid_parallel_service.py
+    distributed_bm25_service.py
+    ltr_feature_extractor.py
+    ltr_service.py
+    personalization_service.py
+    views.py
+    tests.py
+
+  scripts/
+    train_ltr_model.py
+    run_all_evaluations.py
+    build_distributed_bm25_index.py
+    build_biomedical_embedding_index.py
+    ...
+```
+
+---
+
+## Frontend
+
+The frontend is built with React and provides:
+
+* Dataset selector
+* Retrieval model selector
+* Advanced search controls
+* Hybrid weights
+* BM25 parameters
+* LTR candidate model controls
+* Biomedical option for Clinical Trials
+* Query refinement options
+* Search result explanations and metadata
+
+```text
+frontend/
+  src/
+    App.jsx
+    api/
+    components/
+    config/
+```
+
+---
+
+## Requirements
+
+Recommended environment:
+
+* Python 3.12 64-bit
+* Node.js 18+
+* npm
+* Windows PowerShell or compatible terminal
+
+Install Python dependencies:
 
 ```powershell
-cd "C:\Users\LONOVO\Desktop\Final Year 5\IR\ir-search-engine"
-
 python -m venv .venv
-
-.\.venv\Scripts\Activate.ps1
-```
-
-### 14.2 Install dependencies
-
-```powershell
+.\.venv\Scripts\activate
+python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 ```
 
-If your environment has separate backend requirements, use:
+Install frontend dependencies:
 
 ```powershell
-pip install -r backend\requirements.txt
+cd frontend
+npm install
 ```
 
 ---
 
-## 15. Build Offline Artifacts
+## Important Artifact Notice
 
-The project depends on local artifacts such as document stores and indexes.
+Large generated files are not included in Git.
 
-Run the relevant scripts from the repository root.
+The following folders may be required for full local search functionality:
 
-### 15.1 Build TF-IDF indexes
-
-```powershell
-python .\backend\scripts\build_scalable_tfidf_index.py --dataset quora
-
-python .\backend\scripts\build_scalable_tfidf_index.py --dataset clinical_trials
+```text
+artifacts/database/
+artifacts/models/
+indexes/
 ```
 
-### 15.2 Build BM25 indexes
+These may include:
 
-```powershell
-python .\backend\scripts\build_scalable_bm25_index.py --dataset quora
+* SQLite document store
+* FAISS indexes
+* TF-IDF indexes
+* BM25 indexes
+* Biomedical embedding model
+* LTR trained models
+* Distributed BM25 shard indexes
 
-python .\backend\scripts\build_scalable_bm25_index.py --dataset clinical_trials
+If these folders are missing, the application code can run, but some search models may return errors such as:
+
+```text
+index not found
+model not found
+document store not found
+LTR model is not trained
 ```
 
-### 15.3 Build embedding / FAISS indexes
-
-```powershell
-python .\backend\scripts\build_scalable_embedding_index.py --dataset quora
-
-python .\backend\scripts\build_scalable_embedding_index.py --dataset clinical_trials
-```
-
-### 15.4 Build document clusters
-
-```powershell
-python .\backend\scripts\build_document_clusters.py --dataset quora
-
-python .\backend\scripts\build_document_clusters.py --dataset clinical_trials
-```
-
-### 15.5 Build cluster topics
-
-```powershell
-python .\backend\scripts\build_cluster_topics.py --dataset quora
-
-python .\backend\scripts\build_cluster_topics.py --dataset clinical_trials
-```
+To run the full system on another machine, copy prepared `artifacts/` and `indexes/` folders into the project root.
 
 ---
 
-## 16. Run Backend
+## Running the Backend
+
+From the project root:
 
 ```powershell
-cd "C:\Users\LONOVO\Desktop\Final Year 5\IR\ir-search-engine"
-
-.\.venv\Scripts\Activate.ps1
-
+.\.venv\Scripts\activate
+python .\backend\manage.py migrate
 python .\backend\manage.py runserver
 ```
 
-Default backend URL:
+Backend URL:
 
 ```text
-http://127.0.0.1:8000/
+http://127.0.0.1:8000
 ```
 
 ---
 
-## 17. Run Frontend
+## Running the Frontend
+
+In a second terminal:
 
 ```powershell
-cd "C:\Users\LONOVO\Desktop\Final Year 5\IR\ir-search-engine\frontend"
-
-npm install
-
+cd frontend
 npm run dev
 ```
 
-Default frontend URL:
+Frontend URL:
 
 ```text
-http://127.0.0.1:5173/
+http://localhost:5173
 ```
 
 ---
 
-## 18. API Endpoints
+## Search API Example
 
-### Search
+Endpoint:
 
 ```text
 POST /api/search/
 ```
 
-Example:
+Example BM25 request:
 
-```powershell
-Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8000/api/search/" `
-  -Method Post `
-  -ContentType "application/json" `
-  -Body '{
-    "dataset": "quora",
-    "model": "agent",
-    "query": "what causes nightmares",
-    "top_k": 5
-  }'
+```json
+{
+  "dataset": "quora",
+  "model": "bm25",
+  "query": "what causes nightmares",
+  "top_k": 10
+}
+```
+
+Example LTR request:
+
+```json
+{
+  "dataset": "quora",
+  "model": "ltr",
+  "query": "what causes nightmares",
+  "top_k": 5,
+  "candidate_count": 500,
+  "ltr_candidate_models": ["bm25", "tfidf", "embedding"]
+}
+```
+
+Example Clinical LTR request with Biomedical candidates:
+
+```json
+{
+  "dataset": "clinical_trials",
+  "model": "ltr",
+  "query": "diabetes insulin treatment",
+  "top_k": 5,
+  "candidate_count": 1000,
+  "ltr_candidate_models": ["bm25", "tfidf", "embedding"],
+  "include_biomedical": true
+}
 ```
 
 ---
 
-### Search with Hybrid Parallel Weights
+## Training LTR Models
+
+LTR models are not trained automatically during API requests.
+
+### Train LTR on Quora
 
 ```powershell
-Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8000/api/search/" `
-  -Method Post `
-  -ContentType "application/json" `
-  -Body '{
-    "dataset": "quora",
-    "model": "hybrid_parallel",
-    "query": "what causes nightmares",
-    "top_k": 5,
-    "candidate_count": 1000,
-    "rrf_k": 60,
-    "tfidf_weight": 1.0,
-    "bm25_weight": 2.0,
-    "embedding_weight": 1.0
-  }'
+.\.venv\Scripts\python.exe .\backend\scripts\train_ltr_model.py `
+  --dataset quora `
+  --candidate-count 500 `
+  --output .\artifacts\models\ltr\quora_ltr.joblib
 ```
 
----
+### Train LTR on Clinical Trials
 
-### Get Original Document
+```powershell
+.\.venv\Scripts\python.exe .\backend\scripts\train_ltr_model.py `
+  --dataset clinical_trials `
+  --candidate-count 1000 `
+  --include-biomedical `
+  --output .\artifacts\models\ltr\clinical_trials_ltr.joblib
+```
+
+Generated LTR artifacts:
 
 ```text
-GET /api/documents/<dataset>/<doc_id>/
+artifacts/models/ltr/quora_ltr.joblib
+artifacts/models/ltr/quora_ltr_metadata.json
+artifacts/models/ltr/clinical_trials_ltr.joblib
+artifacts/models/ltr/clinical_trials_ltr_metadata.json
 ```
 
-Example:
+These files should not be committed to Git.
+
+---
+
+## Running Evaluation
+
+### Evaluate Quora LTR
 
 ```powershell
-Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8000/api/documents/clinical_trials/NCT00405587/" `
-  -Method Get
+.\.venv\Scripts\python.exe .\backend\scripts\run_all_evaluations.py `
+  --datasets quora `
+  --models ltr `
+  --retrieval-depth 500 `
+  --precision-k 10 `
+  --recall-k 500 `
+  --ndcg-k 10 `
+  --candidate-count 500 `
+  --query-batch-size 1 `
+  --ltr-model-path .\artifacts\models\ltr\quora_ltr.joblib `
+  --output .\reports\evaluation\quora_ltr_c500.csv
 ```
 
----
-
-### Get Cluster Summary
-
-```text
-GET /api/clusters/<dataset>/
-```
-
-Example:
+### Evaluate Clinical Trials LTR
 
 ```powershell
-Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8000/api/clusters/quora/" `
-  -Method Get
+.\.venv\Scripts\python.exe .\backend\scripts\run_all_evaluations.py `
+  --datasets clinical_trials `
+  --models ltr `
+  --retrieval-depth 1000 `
+  --precision-k 10 `
+  --recall-k 1000 `
+  --ndcg-k 10 `
+  --candidate-count 1000 `
+  --include-biomedical `
+  --query-batch-size 1 `
+  --ltr-model-path .\artifacts\models\ltr\clinical_trials_ltr.joblib `
+  --output .\reports\evaluation\clinical_trials_ltr.csv
 ```
 
----
-
-### Get Cluster Topics
-
-```text
-GET /api/topics/<dataset>/
-```
-
-Example:
+### Evaluate Distributed BM25
 
 ```powershell
-Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8000/api/topics/quora/" `
-  -Method Get
+.\.venv\Scripts\python.exe .\backend\scripts\run_all_evaluations.py `
+  --datasets clinical_trials `
+  --models distributed_bm25 `
+  --retrieval-depth 1000 `
+  --precision-k 10 `
+  --recall-k 1000 `
+  --ndcg-k 10 `
+  --candidate-count 1000 `
+  --num-shards 4 `
+  --shard-top-k 1000 `
+  --rrf-k 60 `
+  --output .\reports\evaluation\clinical_trials_distributed_bm25.csv
 ```
 
 ---
 
-## 19. Frontend Features
+## Distributed BM25
 
-The React interface supports:
+Distributed BM25 simulates Distributed Information Retrieval locally.
 
-* selecting dataset
-* selecting retrieval model
-* searching by query
-* setting `top_k`
-* controlling BM25 parameters
-* controlling hybrid candidate count
-* controlling RRF parameter
-* controlling hybrid parallel weights
-* enabling query refinement
-* setting feedback documents and expansion terms
-* enabling raw text display
-* viewing agent decision
-* viewing search results with document IDs and scores
-* viewing clusters and topics
-* viewing cluster/topic charts
-
-Available models in the UI:
+Process:
 
 ```text
-agent
-tfidf
-bm25
-embedding
-hybrid_serial
-hybrid_parallel
+Corpus
+  |
+  v
+Hash-based sharding
+  |
+  +--> Shard 0 BM25 Index
+  +--> Shard 1 BM25 Index
+  +--> Shard 2 BM25 Index
+  +--> Shard 3 BM25 Index
+  |
+  v
+Coordinator queries all shards
+  |
+  v
+RRF merge
+  |
+  v
+Final ranked results
 ```
 
----
-
-## 20. Demo Checklist
-
-Before presentation, run this checklist.
-
-### Backend
+Build distributed BM25 index:
 
 ```powershell
-python -m py_compile `
-  .\backend\retrieval\views.py `
-  .\backend\retrieval\topic_views.py `
-  .\backend\retrieval\hybrid_parallel_service.py `
-  .\backend\agents\retrieval_strategy_agent.py
+.\.venv\Scripts\python.exe .\backend\scripts\build_distributed_bm25_index.py `
+  --dataset clinical_trials `
+  --num-shards 4
 ```
 
-### API Tests
+---
 
-Test each endpoint:
+## Biomedical PubMedBERT Retrieval
+
+Biomedical retrieval is designed for the Clinical Trials dataset.
+
+It uses a biomedical embedding model and FAISS vector search.
+
+Search example:
+
+```json
+{
+  "dataset": "clinical_trials",
+  "model": "biomedical_embedding",
+  "query": "diabetes insulin treatment",
+  "top_k": 10
+}
+```
+
+Biomedical retrieval is not available for Quora.
+
+---
+
+## Query Refinement
+
+The system supports several query refinement techniques:
+
+* Pseudo Relevance Feedback
+* Offline spelling correction
+* Search personalization
+
+The spelling correction module works offline and does not require external APIs.
+
+Personalization uses local search history and can influence future searches for the same user/session.
+
+---
+
+## Testing
+
+Run backend tests:
+
+```powershell
+.\run_backend_tests.ps1
+```
+
+Or manually:
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe manage.py test
+```
+
+Run frontend checks:
+
+```powershell
+cd frontend
+npm run lint
+npm run build
+```
+
+---
+
+## Git Notes
+
+Do not commit generated artifacts:
 
 ```text
-/api/search/
-/api/clusters/quora/
-/api/topics/quora/
-/api/clusters/clinical_trials/
-/api/topics/clinical_trials/
+artifacts/models/
+artifacts/database/
+indexes/
+reports/evaluation/
+hub/
+*.joblib
+*.csv
+*.sqlite3
 ```
 
-### Frontend Tests
+Recommended commit command for code changes:
 
-From the UI, test:
+```powershell
+git add backend frontend README.md .gitignore requirements.txt
+git commit -m "Update project documentation"
+git push origin main
+```
 
-* `tfidf`
-* `bm25`
-* `embedding`
-* `hybrid_serial`
-* `hybrid_parallel`
-* `agent`
-* query refinement on/off
-* raw text on/off
-* hybrid parallel weights
-* topic detection panel
-* clustering panel
+Avoid:
 
----
+```powershell
+git add .
+```
 
-## 21. Important Notes
-
-* Retrieval and evaluation are performed per dataset.
-* The two datasets are not mixed during evaluation.
-* The system uses dataset qrels for evaluation.
-* Query refinement is optional because it can improve or harm performance depending on the dataset.
-* BM25 performs best on Clinical Trials because biomedical search depends heavily on exact specialized terms.
-* Hybrid Serial performs best on Quora because it combines lexical candidate retrieval with semantic reranking.
-* Clustering and Topic Detection are analysis features, not primary ranking models.
-* Agent mode is explainable and returns the selected and executed retrieval strategy.
+because it may accidentally stage generated models, indexes, or evaluation reports.
 
 ---
 
-## 22. Tech Stack
+## Project Status
 
-### Backend
+Implemented:
 
-* Python
-* Django
-* Django REST Framework
-* scikit-learn
-* rank-bm25
-* sentence-transformers
-* FAISS
-* NumPy
-* SciPy
-* pandas
-* SQLite
+* TF-IDF retrieval
+* BM25 retrieval
+* Embedding retrieval
+* Hybrid Serial retrieval
+* Hybrid Parallel retrieval
+* Biomedical PubMedBERT retrieval
+* Distributed BM25
+* Learning-to-Rank
+* Spelling correction
+* Personalization
+* Query refinement
+* Evaluation pipeline
+* React web interface
 
-### Frontend
+Future possible extensions:
 
-* React
-* Vite
-* Axios
-* CSS modules / component-based CSS structure
+* Full RAG answer generation
+* Full multilingual retrieval
+* Real remote microservices deployment
+* Web crawling pipeline
+* Advanced neural reranking
+* Online user feedback learning
 
 ---
 
-## 23. Summary
+## Summary
 
-This project implements a complete offline Information Retrieval system over two large datasets. It supports multiple retrieval models, efficient indexes, raw document storage, query refinement, hybrid retrieval, vector search, clustering, topic detection, weighted hybrid controls, and an explainable retrieval strategy agent. The system is accessible through a Django REST API and a dark-mode React interface designed for live demonstration and experimentation.
+This project demonstrates a complete Information Retrieval system with traditional lexical models, dense retrieval, hybrid fusion, biomedical retrieval, distributed retrieval, and supervised Learning-to-Rank. It includes large-scale datasets, local indexing, a React search interface, and a full evaluation pipeline using standard IR metrics.
