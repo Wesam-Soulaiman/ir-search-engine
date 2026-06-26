@@ -144,7 +144,30 @@ def parse_args():
         "--rrf-k",
         type=int,
         default=60,
-        help="RRF k parameter for hybrid parallel.",
+        help=(
+            "RRF k parameter for hybrid_parallel and "
+            "distributed_bm25."
+        ),
+    )
+
+    parser.add_argument(
+        "--num-shards",
+        type=int,
+        default=4,
+        help=(
+            "Number of shards expected by distributed_bm25."
+        ),
+    )
+
+    parser.add_argument(
+        "--shard-top-k",
+        type=int,
+        default=None,
+        help=(
+            "Documents retrieved from each shard for "
+            "distributed_bm25. Defaults to the service "
+            "default max(retrieval_depth * 10, 100)."
+        ),
     )
 
     parser.add_argument(
@@ -345,6 +368,19 @@ def validate_args(args, dataset_keys: List[str]):
             "rrf-k must be greater than zero."
         )
 
+    if args.num_shards <= 0:
+        raise ValueError(
+            "num-shards must be greater than zero."
+        )
+
+    if (
+        args.shard_top_k is not None
+        and args.shard_top_k <= 0
+    ):
+        raise ValueError(
+            "shard-top-k must be greater than zero."
+        )
+
     if args.biomedical_weight < 0:
         raise ValueError(
             "biomedical-weight must be greater than or equal to zero."
@@ -430,6 +466,8 @@ def run_model_evaluation(
     bm25_k1: float,
     bm25_b: float,
     rrf_k: int,
+    num_shards: int,
+    shard_top_k: int | None,
     biomedical_weight: float,
     use_query_refinement: bool,
     feedback_docs: int,
@@ -447,6 +485,8 @@ def run_model_evaluation(
         bm25_k1=bm25_k1,
         bm25_b=bm25_b,
         rrf_k=rrf_k,
+        num_shards=num_shards,
+        shard_top_k=shard_top_k,
         biomedical_weight=biomedical_weight,
         use_query_refinement=(
             use_query_refinement
@@ -517,6 +557,14 @@ def build_failure_result(
         if args.recall_k is not None
         else args.retrieval_depth
     )
+    resolved_shard_top_k = (
+        args.shard_top_k
+        if args.shard_top_k is not None
+        else max(
+            args.retrieval_depth * 10,
+            100,
+        )
+    )
 
     return {
         "dataset": dataset_key,
@@ -563,7 +611,23 @@ def build_failure_result(
         "rrf_k": (
             args.rrf_k
             if model_name
-            == "hybrid_parallel"
+            in {
+                "hybrid_parallel",
+                "distributed_bm25",
+            }
+            else None
+        ),
+        "distributed": (
+            model_name == "distributed_bm25"
+        ),
+        "num_shards": (
+            args.num_shards
+            if model_name == "distributed_bm25"
+            else None
+        ),
+        "shard_top_k": (
+            resolved_shard_top_k
+            if model_name == "distributed_bm25"
             else None
         ),
         "biomedical_weight": (
@@ -593,6 +657,14 @@ def print_configuration(
         if args.recall_k is not None
         else args.retrieval_depth
     )
+    resolved_shard_top_k = (
+        args.shard_top_k
+        if args.shard_top_k is not None
+        else max(
+            args.retrieval_depth * 10,
+            100,
+        )
+    )
 
     print("=" * 70)
     print("Evaluation configuration")
@@ -621,6 +693,18 @@ def print_configuration(
     print(
         "Candidate count: "
         f"{args.candidate_count:,}"
+    )
+    print(
+        "Distributed shards: "
+        f"{args.num_shards:,}"
+    )
+    print(
+        "Shard top-k: "
+        f"{resolved_shard_top_k:,}"
+    )
+    print(
+        "RRF k: "
+        f"{args.rrf_k:,}"
     )
     print(
         "Biomedical weight: "
@@ -682,6 +766,8 @@ def evaluate_dataset(
                 bm25_k1=args.bm25_k1,
                 bm25_b=args.bm25_b,
                 rrf_k=args.rrf_k,
+                num_shards=args.num_shards,
+                shard_top_k=args.shard_top_k,
                 biomedical_weight=args.biomedical_weight,
                 use_query_refinement=(
                     args.use_query_refinement

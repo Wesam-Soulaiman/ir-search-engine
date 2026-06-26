@@ -1,3 +1,4 @@
+import json
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -40,6 +41,15 @@ from unittest.mock import patch
 from document_store.repository import (
     DocumentStoreError,
     DocumentStoreRepository,
+)
+from indexing.distributed_bm25_index import (
+    MERGE_METHOD,
+    SHARDING_STRATEGY,
+    assign_shard,
+    validate_num_shards,
+)
+from retrieval.distributed_bm25_service import (
+    DistributedBM25RetrievalService,
 )
 from retrieval.result_enrichment import (
     enrich_search_results,
@@ -442,6 +452,325 @@ class LexicalRetrievalIntegrationTests(
                 top_k=3,
             ),
             [],
+        )
+
+
+class DistributedBM25Tests(SimpleTestCase):
+    def _write_distributed_manifest(
+        self,
+        root: Path,
+        dataset_key: str = "sample_dataset",
+        num_shards: int = 2,
+    ) -> Path:
+        index_dir = (
+            root
+            / dataset_key
+            / "distributed_bm25"
+        )
+        shards_dir = index_dir / "shards"
+        shard_counts = {
+            f"shard_{shard_id}": 1
+            for shard_id in range(num_shards)
+        }
+
+        index_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        (
+            index_dir
+            / "manifest.json"
+        ).write_text(
+            json.dumps({
+                "dataset": dataset_key,
+                "model": "distributed_bm25",
+                "version": 1,
+                "num_shards": num_shards,
+                "total_documents": num_shards,
+                "sharding_strategy": (
+                    SHARDING_STRATEGY
+                ),
+                "merge_method": MERGE_METHOD,
+                "rrf_k": 60,
+                "shard_document_counts": (
+                    shard_counts
+                ),
+            }),
+            encoding="utf-8",
+        )
+
+        for shard_id in range(num_shards):
+            shard_dir = (
+                shards_dir
+                / f"shard_{shard_id}"
+            )
+            shard_dir.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+            (
+                shard_dir
+                / "manifest.json"
+            ).write_text(
+                json.dumps({
+                    "dataset": dataset_key,
+                    "index_type": (
+                        "sqlite_inverted_bm25"
+                    ),
+                    "version": 1,
+                    "document_count": 1,
+                    "vocabulary_size": 1,
+                    "posting_count": 1,
+                    "average_document_length": 1.0,
+                    "average_idf": 1.0,
+                    "epsilon": 0.25,
+                    "preprocessing": {},
+                }),
+                encoding="utf-8",
+            )
+
+            (
+                shard_dir
+                / "shard_manifest.json"
+            ).write_text(
+                json.dumps({
+                    "dataset": dataset_key,
+                    "model": "distributed_bm25",
+                    "shard_id": shard_id,
+                    "num_shards": num_shards,
+                    "document_count": 1,
+                    "sharding_strategy": (
+                        SHARDING_STRATEGY
+                    ),
+                }),
+                encoding="utf-8",
+            )
+
+        return index_dir
+
+    def _mocked_service(
+        self,
+        shard_results,
+    ):
+        service = DistributedBM25RetrievalService.__new__(
+            DistributedBM25RetrievalService
+        )
+        service.dataset_key = "sample_dataset"
+        service.num_shards = len(
+            shard_results
+        )
+        service.shard_document_counts = {
+            f"shard_{shard_id}": 1
+            for shard_id in range(
+                service.num_shards
+            )
+        }
+        service.shard_services = {}
+        service.repository = None
+        service.manifest = {}
+        service.default_shard_top_k = None
+        service.default_rrf_k = 60
+        service.last_search_metadata = {}
+
+        for shard_id, results in shard_results.items():
+            shard_service = MagicMock()
+            shard_service.search.return_value = (
+                results
+            )
+            service.shard_services[
+                shard_id
+            ] = shard_service
+
+        return service
+
+    def test_shard_assignment_is_deterministic(self):
+        first_assignment = assign_shard(
+            "DOC001",
+            4,
+        )
+
+        second_assignment = assign_shard(
+            "DOC001",
+            4,
+        )
+
+        self.assertEqual(
+            first_assignment,
+            second_assignment,
+        )
+
+    def test_every_document_gets_exactly_one_shard(self):
+        doc_ids = [
+            "D1",
+            "D2",
+            "D3",
+            "D4",
+        ]
+
+        assignments = [
+            assign_shard(
+                doc_id,
+                4,
+            )
+            for doc_id in doc_ids
+        ]
+
+        self.assertEqual(
+            len(assignments),
+            len(doc_ids),
+        )
+
+        self.assertTrue(
+            all(
+                0 <= shard_id < 4
+                for shard_id in assignments
+            )
+        )
+
+    def test_invalid_shard_count_is_rejected(self):
+        with self.assertRaises(ValueError):
+            validate_num_shards(0)
+
+    def test_missing_distributed_index_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(FileNotFoundError):
+                DistributedBM25RetrievalService(
+                    dataset_key="sample_dataset",
+                    indexes_root=Path(directory),
+                )
+
+    @patch(
+        "retrieval.distributed_bm25_service."
+        "BM25RetrievalService"
+    )
+    def test_manifest_and_shards_are_accepted(
+        self,
+        mocked_bm25_service,
+    ):
+        with tempfile.TemporaryDirectory() as directory:
+            self._write_distributed_manifest(
+                Path(directory),
+                num_shards=2,
+            )
+
+            service = DistributedBM25RetrievalService(
+                dataset_key="sample_dataset",
+                indexes_root=Path(directory),
+            )
+
+        self.assertEqual(
+            service.num_shards,
+            2,
+        )
+
+        self.assertEqual(
+            mocked_bm25_service.call_count,
+            2,
+        )
+
+    def test_num_shards_mismatch_is_clear(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self._write_distributed_manifest(
+                Path(directory),
+                num_shards=2,
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "Requested num_shards",
+            ):
+                DistributedBM25RetrievalService(
+                    dataset_key="sample_dataset",
+                    indexes_root=Path(directory),
+                    num_shards=3,
+                )
+
+    def test_coordinator_queries_all_shards(self):
+        service = self._mocked_service({
+            0: [
+                {
+                    "rank": 1,
+                    "doc_id": "D1",
+                    "score": 4.0,
+                }
+            ],
+            1: [
+                {
+                    "rank": 1,
+                    "doc_id": "D2",
+                    "score": 3.0,
+                }
+            ],
+        })
+
+        results = service.search(
+            query="diabetes insulin",
+            top_k=2,
+            shard_top_k=5,
+            hydrate=False,
+        )
+
+        self.assertEqual(
+            len(results),
+            2,
+        )
+
+        for shard_service in (
+            service.shard_services.values()
+        ):
+            shard_service.search.assert_called_once()
+
+        self.assertEqual(
+            service.last_search_metadata[
+                "shards_queried"
+            ],
+            2,
+        )
+
+    def test_rrf_merge_is_deterministic(self):
+        service = self._mocked_service({})
+
+        results = service._reciprocal_rank_fusion(
+            shard_results={
+                "shard_1": [
+                    {
+                        "rank": 1,
+                        "doc_id": "D2",
+                        "score": 9.0,
+                    }
+                ],
+                "shard_0": [
+                    {
+                        "rank": 1,
+                        "doc_id": "D1",
+                        "score": 8.0,
+                    }
+                ],
+            },
+            top_k=2,
+            rrf_k=60,
+        )
+
+        self.assertEqual(
+            [
+                result["doc_id"]
+                for result in results
+            ],
+            [
+                "D1",
+                "D2",
+            ],
+        )
+
+        self.assertEqual(
+            results[0]["merge_method"],
+            "RRF",
+        )
+
+        self.assertTrue(
+            results[0]["distributed"]
         )
 
 
@@ -1300,6 +1629,135 @@ class SearchAPITests(APITestCase):
     @patch(
         "retrieval.views.run_search"
     )
+    def test_distributed_bm25_response_includes_metadata(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.return_value = {
+            "results": [
+                {
+                    "rank": 1,
+                    "doc_id": "DOC001",
+                    "title": "Distributed title",
+                    "snippet": "Distributed text",
+                    "score": 0.01639344,
+                    "model": "distributed_bm25",
+                    "distributed": True,
+                    "shard_id": 0,
+                    "local_rank": 1,
+                    "local_score": 12.5,
+                    "merge_method": "RRF",
+                }
+            ],
+            "metadata": {
+                "distributed": True,
+                "num_shards": 4,
+                "shards_queried": 4,
+                "shard_top_k": 100,
+                "merge_method": "RRF",
+                "rrf_k": 60,
+                "shard_result_counts": {
+                    "shard_0": 1,
+                    "shard_1": 1,
+                    "shard_2": 1,
+                    "shard_3": 1,
+                },
+                "shard_document_counts": {
+                    "shard_0": 10,
+                    "shard_1": 10,
+                    "shard_2": 10,
+                    "shard_3": 10,
+                },
+            },
+        }
+
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "machine learning",
+                "dataset": "sample_dataset",
+                "model": "distributed_bm25",
+                "top_k": 1,
+                "num_shards": 4,
+                "shard_top_k": 100,
+                "rrf_k": 60,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertTrue(
+            response.data["distributed"]
+        )
+
+        self.assertEqual(
+            response.data["num_shards"],
+            4,
+        )
+
+        self.assertEqual(
+            response.data["shards_queried"],
+            4,
+        )
+
+        self.assertEqual(
+            response.data["merge_method"],
+            "RRF",
+        )
+
+        self.assertEqual(
+            response.data["shard_top_k"],
+            100,
+        )
+
+        self.assertEqual(
+            mocked_run_search.call_args.kwargs[
+                "num_shards"
+            ],
+            4,
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
+    def test_distributed_bm25_num_shards_mismatch_returns_400(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.side_effect = ValueError(
+            "Requested num_shards does not match the built "
+            "distributed BM25 index."
+        )
+
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "machine learning",
+                "dataset": "sample_dataset",
+                "model": "distributed_bm25",
+                "top_k": 1,
+                "num_shards": 8,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+        self.assertIn(
+            "num_shards",
+            response.data["error"],
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
     def test_hybrid_parallel_accepts_optional_biomedical_weight(
         self,
         mocked_run_search,
@@ -1422,6 +1880,7 @@ class SearchAPITests(APITestCase):
                 "agent",
                 "tfidf",
                 "bm25",
+                "distributed_bm25",
                 "embedding",
                 "biomedical_embedding",
                 "hybrid_serial",

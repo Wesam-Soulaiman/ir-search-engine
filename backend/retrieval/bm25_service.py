@@ -63,6 +63,8 @@ class BM25RetrievalService:
         k1: float = 1.5,
         b: float = 0.75,
         use_saved_index: bool = True,
+        index_dir: str | Path | None = None,
+        validate_document_store_count: bool = True,
     ):
         self.dataset_key = str(
             dataset_key
@@ -72,6 +74,9 @@ class BM25RetrievalService:
         self.b = float(b)
         self.use_saved_index = bool(
             use_saved_index
+        )
+        self.validate_document_store_count = bool(
+            validate_document_store_count
         )
 
         self._validate_parameters()
@@ -90,9 +95,13 @@ class BM25RetrievalService:
         ).expanduser().resolve()
 
         self.index_dir = (
-            indexes_root
-            / self.dataset_key
-            / "bm25"
+            Path(index_dir).expanduser().resolve()
+            if index_dir is not None
+            else (
+                indexes_root
+                / self.dataset_key
+                / "bm25"
+            )
         )
 
         # SQLite inverted-index artifacts.
@@ -463,9 +472,10 @@ class BM25RetrievalService:
                 "The BM25 posting count is invalid."
             )
 
-        self._validate_document_store_count(
-            document_count
-        )
+        if self.validate_document_store_count:
+            self._validate_document_store_count(
+                document_count
+            )
 
         self._validate_postings_database(
             expected_posting_count=posting_count,
@@ -790,6 +800,7 @@ class BM25RetrievalService:
         self,
         query: str,
         top_k: int = 10,
+        hydrate: bool = True,
     ) -> List[Dict[str, Any]]:
         if not isinstance(query, str):
             raise ValueError(
@@ -818,7 +829,7 @@ class BM25RetrievalService:
             return self._search_inverted(
                 query=query,
                 top_k=result_count,
-                hydrate=True,
+                hydrate=hydrate,
             )
 
         if self.mode in {

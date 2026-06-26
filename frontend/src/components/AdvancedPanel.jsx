@@ -13,6 +13,10 @@ function AdvancedPanel({
     || form.model === "agent"
   );
 
+  const showDistributed = (
+    form.model === "distributed_bm25"
+  );
+
   const showBiomedicalFusion = (
     form.dataset === "clinical_trials"
     && form.model === "hybrid_parallel"
@@ -180,6 +184,61 @@ function AdvancedPanel({
                     />
                   </label>
                 ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {showDistributed ? (
+            <div className="fusion-weight-card">
+              <div className="fusion-weight-header">
+                <strong>Distributed BM25</strong>
+                <small>
+                  Local shard fan-out with RRF coordinator merge.
+                </small>
+              </div>
+
+              <div className="advanced-grid refinement-options">
+                <label className="input-group">
+                  <span>Shards</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="1024"
+                    value={form.numShards}
+                    onChange={(event) => onFieldChange(
+                      "numShards",
+                      event.target.value,
+                    )}
+                  />
+                </label>
+
+                <label className="input-group">
+                  <span>Shard Top K</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100000"
+                    value={form.shardTopK}
+                    onChange={(event) => onFieldChange(
+                      "shardTopK",
+                      event.target.value,
+                    )}
+                  />
+                </label>
+
+                <label className="input-group">
+                  <span>RRF K</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100000"
+                    value={form.rrfK}
+                    onChange={(event) => onFieldChange(
+                      "rrfK",
+                      event.target.value,
+                    )}
+                  />
+                </label>
               </div>
             </div>
           ) : null}

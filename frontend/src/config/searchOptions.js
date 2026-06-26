@@ -33,6 +33,12 @@ export const MODELS = [
     tag: "Strong baseline",
   },
   {
+    value: "distributed_bm25",
+    label: "Distributed BM25",
+    description: "Local sharded BM25 with RRF coordinator merging.",
+    tag: "Distributed",
+  },
+  {
     value: "embedding",
     label: "Embedding",
     description: "Semantic search using FAISS vector store.",
@@ -80,6 +86,8 @@ export const DEFAULT_SEARCH_FORM = {
   bm25B: 0.75,
   candidateCount: 1000,
   rrfK: 60,
+  numShards: 4,
+  shardTopK: 100,
   tfidfWeight: 1.0,
   bm25Weight: 1.0,
   embeddingWeight: 1.0,

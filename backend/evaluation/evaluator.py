@@ -17,6 +17,9 @@ from retrieval.bm25_service import (
 from retrieval.biomedical_embedding_service import (
     BiomedicalEmbeddingService,
 )
+from retrieval.distributed_bm25_service import (
+    DistributedBM25RetrievalService,
+)
 from retrieval.embedding_service import (
     EmbeddingRetrievalService,
 )
@@ -34,6 +37,7 @@ from retrieval.tfidf_service import (
 SUPPORTED_MODELS = {
     "tfidf",
     "bm25",
+    "distributed_bm25",
     "embedding",
     "biomedical_embedding",
     "hybrid_serial",
@@ -80,6 +84,8 @@ class EvaluationRunner:
         bm25_k1: float = 1.5,
         bm25_b: float = 0.75,
         rrf_k: int = 60,
+        num_shards: int = 4,
+        shard_top_k: int | None = None,
         biomedical_weight: float = 0.0,
         use_query_refinement: bool = False,
         feedback_docs: int = 3,
@@ -126,6 +132,24 @@ class EvaluationRunner:
 
         self.rrf_k = int(
             rrf_k
+        )
+
+        self.num_shards = int(
+            num_shards
+        )
+
+        self.shard_top_k = (
+            int(shard_top_k)
+            if shard_top_k is not None
+            else (
+                max(
+                    self.retrieval_depth * 10,
+                    100,
+                )
+                if self.model_name
+                == "distributed_bm25"
+                else None
+            )
         )
 
         self.biomedical_weight = float(
@@ -282,6 +306,19 @@ class EvaluationRunner:
         if self.rrf_k <= 0:
             raise ValueError(
                 "rrf_k must be greater than zero."
+            )
+
+        if self.num_shards <= 0:
+            raise ValueError(
+                "num_shards must be greater than zero."
+            )
+
+        if (
+            self.shard_top_k is not None
+            and self.shard_top_k <= 0
+        ):
+            raise ValueError(
+                "shard_top_k must be greater than zero."
             )
 
         if self.biomedical_weight < 0:
@@ -468,6 +505,18 @@ class EvaluationRunner:
                 dataset_key=self.dataset_key,
                 k1=self.bm25_k1,
                 b=self.bm25_b,
+            )
+
+        if self.model_name == "distributed_bm25":
+            return DistributedBM25RetrievalService(
+                dataset_key=self.dataset_key,
+                num_shards=self.num_shards,
+                bm25_k1=self.bm25_k1,
+                bm25_b=self.bm25_b,
+                default_shard_top_k=(
+                    self.shard_top_k
+                ),
+                default_rrf_k=self.rrf_k,
             )
 
         if self.model_name == "embedding":
@@ -1076,7 +1125,26 @@ class EvaluationRunner:
             "rrf_k": (
                 self.rrf_k
                 if self.model_name
-                == "hybrid_parallel"
+                in {
+                    "hybrid_parallel",
+                    "distributed_bm25",
+                }
+                else None
+            ),
+            "distributed": (
+                self.model_name
+                == "distributed_bm25"
+            ),
+            "num_shards": (
+                self.num_shards
+                if self.model_name
+                == "distributed_bm25"
+                else None
+            ),
+            "shard_top_k": (
+                self.shard_top_k
+                if self.model_name
+                == "distributed_bm25"
                 else None
             ),
             "biomedical_weight": (

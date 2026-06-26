@@ -62,6 +62,11 @@ export async function searchDocuments(form) {
     max_personalization_terms: Number(form.maxPersonalizationTerms),
   };
 
+  if (form.model === "distributed_bm25") {
+    payload.num_shards = Number(form.numShards);
+    payload.shard_top_k = Number(form.shardTopK);
+  }
+
   const response = await axios.post(`${API_BASE_URL}/search/`, payload);
   return response.data;
 }

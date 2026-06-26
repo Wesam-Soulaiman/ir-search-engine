@@ -29,6 +29,10 @@ from retrieval.bm25_service import (
 from retrieval.biomedical_embedding_service import (
     BiomedicalEmbeddingService,
 )
+from retrieval.distributed_bm25_service import (
+    DistributedBM25RetrievalService,
+    MAX_DISTRIBUTED_SHARD_TOP_K,
+)
 from retrieval.embedding_service import (
     EmbeddingRetrievalService,
 )
@@ -65,6 +69,7 @@ logger = logging.getLogger(__name__)
 SUPPORTED_MODELS = {
     "tfidf",
     "bm25",
+    "distributed_bm25",
     "embedding",
     "biomedical_embedding",
     "hybrid_serial",
@@ -87,6 +92,9 @@ MAX_CANDIDATE_COUNT = 10_000
 
 DEFAULT_RRF_K = 60
 MAX_RRF_K = 100_000
+
+DEFAULT_DISTRIBUTED_NUM_SHARDS = 4
+MAX_DISTRIBUTED_NUM_SHARDS = 1024
 
 DEFAULT_TFIDF_WEIGHT = 1.0
 DEFAULT_BM25_WEIGHT = 1.0
@@ -131,6 +139,21 @@ def get_bm25_service(
         dataset_key=dataset_key,
         k1=float(k1),
         b=float(b),
+    )
+
+
+@lru_cache(maxsize=16)
+def get_distributed_bm25_service(
+    dataset_key: str = DEFAULT_DATASET,
+    num_shards: int | None = None,
+    bm25_k1: float = DEFAULT_BM25_K1,
+    bm25_b: float = DEFAULT_BM25_B,
+):
+    return DistributedBM25RetrievalService(
+        dataset_key=dataset_key,
+        num_shards=num_shards,
+        bm25_k1=float(bm25_k1),
+        bm25_b=float(bm25_b),
     )
 
 
@@ -425,6 +448,32 @@ def parse_search_request(
         maximum=MAX_RRF_K,
     )
 
+    num_shards = None
+
+    if request_data.get("num_shards") is not None:
+        num_shards = parse_integer(
+            value=request_data.get(
+                "num_shards"
+            ),
+            field_name="num_shards",
+            default=DEFAULT_DISTRIBUTED_NUM_SHARDS,
+            minimum=1,
+            maximum=MAX_DISTRIBUTED_NUM_SHARDS,
+        )
+
+    shard_top_k = None
+
+    if request_data.get("shard_top_k") is not None:
+        shard_top_k = parse_integer(
+            value=request_data.get(
+                "shard_top_k"
+            ),
+            field_name="shard_top_k",
+            default=max(top_k * 10, 100),
+            minimum=1,
+            maximum=MAX_DISTRIBUTED_SHARD_TOP_K,
+        )
+
     tfidf_weight = parse_float(
         value=request_data.get("tfidf_weight"),
         field_name="tfidf_weight",
@@ -594,6 +643,8 @@ def parse_search_request(
         "bm25_b": bm25_b,
         "candidate_count": candidate_count,
         "rrf_k": rrf_k,
+        "num_shards": num_shards,
+        "shard_top_k": shard_top_k,
         "tfidf_weight": tfidf_weight,
         "bm25_weight": bm25_weight,
         "embedding_weight": embedding_weight,
@@ -686,6 +737,8 @@ def run_search(
     bm25_weight: float,
     embedding_weight: float,
     biomedical_weight: float = DEFAULT_BIOMEDICAL_WEIGHT,
+    num_shards: int | None = None,
+    shard_top_k: int | None = None,
 ):
     if model == "tfidf":
         service = get_tfidf_service(
@@ -708,6 +761,28 @@ def run_search(
             query=query,
             top_k=top_k,
         )
+
+    if model == "distributed_bm25":
+        service = get_distributed_bm25_service(
+            dataset_key=dataset_key,
+            num_shards=num_shards,
+            bm25_k1=bm25_k1,
+            bm25_b=bm25_b,
+        )
+
+        results = service.search(
+            query=query,
+            top_k=top_k,
+            shard_top_k=shard_top_k,
+            rrf_k=rrf_k,
+        )
+
+        return {
+            "results": results,
+            "metadata": (
+                service.get_last_search_metadata()
+            ),
+        }
 
     if model == "embedding":
         service = get_embedding_service(
@@ -1079,7 +1154,23 @@ def search_view(request):
             bm25_weight=parameters["bm25_weight"],
             embedding_weight=parameters["embedding_weight"],
             biomedical_weight=parameters["biomedical_weight"],
+            num_shards=parameters["num_shards"],
+            shard_top_k=parameters["shard_top_k"],
         )
+
+        distributed_metadata: Dict[str, Any] = {}
+
+        if (
+            isinstance(results, dict)
+            and "results" in results
+        ):
+            distributed_metadata = dict(
+                results.get("metadata", {})
+                or {}
+            )
+            results = list(
+                results.get("results", [])
+            )
 
         results = enrich_search_results(
             dataset_key=parameters[
@@ -1105,6 +1196,7 @@ def search_view(request):
             executed_model
             in {
                 "bm25",
+                "distributed_bm25",
                 "hybrid_serial",
                 "hybrid_parallel",
             }
@@ -1122,6 +1214,10 @@ def search_view(request):
             executed_model == "hybrid_parallel"
         )
 
+        model_is_distributed = (
+            executed_model == "distributed_bm25"
+        )
+
         document_source = (
             "sqlite_document_store"
             if document_store_is_required(
@@ -1130,7 +1226,7 @@ def search_view(request):
             else "retrieval_index"
         )
 
-        return Response({
+        response_payload = {
             "query": retrieval_query,
             "original_query": original_query,
             "corrected_query": corrected_query,
@@ -1194,8 +1290,28 @@ def search_view(request):
                 else None
             ),
             "rrf_k": (
-                parameters["rrf_k"]
-                if model_is_weighted_parallel
+                distributed_metadata.get(
+                    "rrf_k"
+                )
+                if model_is_distributed
+                else (
+                    parameters["rrf_k"]
+                    if model_is_weighted_parallel
+                    else None
+                )
+            ),
+            "num_shards": (
+                distributed_metadata.get(
+                    "num_shards"
+                )
+                if model_is_distributed
+                else None
+            ),
+            "shard_top_k": (
+                distributed_metadata.get(
+                    "shard_top_k"
+                )
+                if model_is_distributed
                 else None
             ),
             "tfidf_weight": (
@@ -1251,7 +1367,37 @@ def search_view(request):
             "document_source": document_source,
             "result_count": len(results),
             "results": results,
-        })
+        }
+
+        if model_is_distributed:
+            response_payload.update({
+                "distributed": True,
+                "shards_queried": (
+                    distributed_metadata.get(
+                        "shards_queried"
+                    )
+                ),
+                "merge_method": (
+                    distributed_metadata.get(
+                        "merge_method",
+                        "RRF",
+                    )
+                ),
+                "shard_result_counts": (
+                    distributed_metadata.get(
+                        "shard_result_counts",
+                        {},
+                    )
+                ),
+                "shard_document_counts": (
+                    distributed_metadata.get(
+                        "shard_document_counts",
+                        {},
+                    )
+                ),
+            })
+
+        return Response(response_payload)
 
     except ValueError as error:
         return Response(

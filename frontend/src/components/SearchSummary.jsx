@@ -7,6 +7,7 @@ function SearchSummary({
 
   const model = info.executed_model || info.model;
   const isWeightedHybrid = model === "hybrid_parallel";
+  const isDistributed = Boolean(info.distributed) || model === "distributed_bm25";
 
   return (
     <section className="search-summary">
@@ -49,6 +50,21 @@ function SearchSummary({
             ) : null}
             {" · "}
             Fusion: {info.fusion_method || "Weighted RRF"}
+          </p>
+        </div>
+      ) : null}
+
+      {isDistributed ? (
+        <div className="summary-note">
+          <span>Distributed: Yes</span>
+          <p>
+            Shards queried: {info.shards_queried}
+            {" | "}
+            Merge method: {info.merge_method || "RRF"}
+            {" | "}
+            Shard top-k: {info.shard_top_k}
+            {" | "}
+            RRF k: {info.rrf_k}
           </p>
         </div>
       ) : null}
