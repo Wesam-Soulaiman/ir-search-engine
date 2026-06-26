@@ -17,10 +17,29 @@ function AdvancedPanel({
     form.model === "distributed_bm25"
   );
 
+  const showLtr = (
+    form.model === "ltr"
+  );
+
   const showBiomedicalFusion = (
     form.dataset === "clinical_trials"
     && form.model === "hybrid_parallel"
   );
+
+  const showLtrBiomedical = (
+    form.dataset === "clinical_trials"
+    && showLtr
+  );
+
+  const updateLtrCandidateModel = (modelName, enabled) => {
+    onFieldChange(
+      "ltrCandidateModels",
+      {
+        ...(form.ltrCandidateModels || {}),
+        [modelName]: enabled,
+      },
+    );
+  };
 
   return (
     <section className="advanced-card">
@@ -239,6 +258,97 @@ function AdvancedPanel({
                     )}
                   />
                 </label>
+              </div>
+            </div>
+          ) : null}
+
+          {showLtr ? (
+            <div className="fusion-weight-card">
+              <div className="fusion-weight-header">
+                <strong>Learning to Rank</strong>
+                <small>
+                  Rerank candidates from selected base retrieval models.
+                </small>
+              </div>
+
+              <div className="advanced-grid refinement-options">
+                <label className="input-group">
+                  <span>Candidate Count</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10000"
+                    value={form.candidateCount}
+                    onChange={(event) => onFieldChange(
+                      "candidateCount",
+                      event.target.value,
+                    )}
+                  />
+                </label>
+              </div>
+
+              <div className="switch-grid">
+                <label className="switch-card">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.ltrCandidateModels?.bm25)}
+                    onChange={(event) => updateLtrCandidateModel(
+                      "bm25",
+                      event.target.checked,
+                    )}
+                  />
+                  <span>
+                    <strong>BM25</strong>
+                    <small>Lexical candidate source</small>
+                  </span>
+                </label>
+
+                <label className="switch-card">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.ltrCandidateModels?.tfidf)}
+                    onChange={(event) => updateLtrCandidateModel(
+                      "tfidf",
+                      event.target.checked,
+                    )}
+                  />
+                  <span>
+                    <strong>TF-IDF</strong>
+                    <small>Vector-space candidate source</small>
+                  </span>
+                </label>
+
+                <label className="switch-card">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.ltrCandidateModels?.embedding)}
+                    onChange={(event) => updateLtrCandidateModel(
+                      "embedding",
+                      event.target.checked,
+                    )}
+                  />
+                  <span>
+                    <strong>Embedding</strong>
+                    <small>Semantic candidate source</small>
+                  </span>
+                </label>
+
+                {showLtrBiomedical ? (
+                  <label className="switch-card">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.includeBiomedical)}
+                      onChange={(event) => onFieldChange(
+                        "includeBiomedical",
+                        event.target.checked,
+                      )}
+                    />
+                    <span>
+                      <strong>Biomedical PubMedBERT</strong>
+                      <small>Clinical Trials candidate source</small>
+                    </span>
+                  </label>
+                ) : null}
               </div>
             </div>
           ) : null}

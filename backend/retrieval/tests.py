@@ -1,6 +1,9 @@
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import joblib
+import numpy as np
 from django.test import SimpleTestCase
 from rest_framework.test import APITestCase
 
@@ -51,9 +54,26 @@ from indexing.distributed_bm25_index import (
 from retrieval.distributed_bm25_service import (
     DistributedBM25RetrievalService,
 )
+from retrieval.ltr_feature_extractor import (
+    LTRFeatureExtractor,
+    build_ltr_labels,
+    merge_ltr_candidate_results,
+)
+from retrieval.ltr_service import (
+    LTRModelNotTrainedError,
+    LTRRetrievalService,
+)
 from retrieval.result_enrichment import (
     enrich_search_results,
 )
+
+
+class ScoreFromRrfModel:
+    def predict(self, feature_matrix):
+        return np.asarray(
+            feature_matrix[:, -1],
+            dtype=float,
+        )
 
 
 class RequestValidationTests(SimpleTestCase):
@@ -772,6 +792,696 @@ class DistributedBM25Tests(SimpleTestCase):
         self.assertTrue(
             results[0]["distributed"]
         )
+
+
+class LTRFeatureExtractorTests(SimpleTestCase):
+    def test_feature_names_are_stable_and_numeric(self):
+        extractor = LTRFeatureExtractor(
+            dataset_key="sample_dataset"
+        )
+        candidate = {
+            "doc_id": "D1",
+            "title": "Diabetes insulin",
+            "snippet": (
+                "Diabetes insulin treatment"
+            ),
+            "source_details": {
+                "bm25": {
+                    "rank": 1,
+                    "score": 3.5,
+                }
+            },
+        }
+
+        features = extractor.extract_features(
+            query="diabetes insulin",
+            candidate=candidate,
+        )
+
+        self.assertEqual(
+            list(features),
+            extractor.feature_names,
+        )
+
+        self.assertTrue(
+            all(
+                isinstance(value, float)
+                for value in features.values()
+            )
+        )
+
+        self.assertEqual(
+            features["bm25_score"],
+            3.5,
+        )
+
+        self.assertEqual(
+            features["in_tfidf"],
+            0.0,
+        )
+
+    def test_missing_model_scores_are_safe(self):
+        extractor = LTRFeatureExtractor(
+            dataset_key="sample_dataset"
+        )
+
+        features = extractor.extract_features(
+            query="machine learning",
+            candidate={
+                "doc_id": "D1",
+                "source_details": {},
+            },
+        )
+
+        self.assertEqual(
+            features["bm25_score"],
+            0.0,
+        )
+
+        self.assertEqual(
+            features["bm25_rank"],
+            0.0,
+        )
+
+        self.assertEqual(
+            features["rrf_sum"],
+            0.0,
+        )
+
+    def test_candidates_are_deduplicated_by_doc_id(self):
+        candidates = merge_ltr_candidate_results({
+            "bm25": [
+                {
+                    "rank": 1,
+                    "doc_id": "D1",
+                    "score": 2.0,
+                }
+            ],
+            "tfidf": [
+                {
+                    "rank": 2,
+                    "doc_id": "D1",
+                    "score": 0.5,
+                },
+                {
+                    "rank": 1,
+                    "doc_id": "D2",
+                    "score": 0.8,
+                },
+            ],
+        })
+
+        self.assertEqual(
+            [
+                candidate["doc_id"]
+                for candidate in candidates
+            ],
+            [
+                "D1",
+                "D2",
+            ],
+        )
+
+        self.assertEqual(
+            set(
+                candidates[0][
+                    "source_details"
+                ]
+            ),
+            {
+                "bm25",
+                "tfidf",
+            },
+        )
+
+    def test_labels_are_created_from_qrels(self):
+        labels = build_ltr_labels(
+            candidates=[
+                {
+                    "doc_id": "D1",
+                },
+                {
+                    "doc_id": "D2",
+                },
+            ],
+            qrels_for_query={
+                "D2": 2,
+            },
+        )
+
+        self.assertEqual(
+            labels,
+            [
+                0.0,
+                2.0,
+            ],
+        )
+
+
+class LTRRetrievalServiceTests(SimpleTestCase):
+    def test_missing_trained_model_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing_path = (
+                Path(directory)
+                / "missing_ltr.joblib"
+            )
+
+            with self.assertRaisesRegex(
+                LTRModelNotTrainedError,
+                "LTR model is not trained",
+            ):
+                LTRRetrievalService(
+                    dataset_key="sample_dataset",
+                    candidate_count=2,
+                    candidate_models=["bm25"],
+                    model_path=missing_path,
+                )
+
+    def test_reranks_candidates_with_mocked_model(self):
+        candidate_generator = MagicMock()
+        candidate_generator.generate.return_value = [
+            {
+                "doc_id": "D1",
+                "title": "First",
+                "snippet": "alpha",
+                "candidate_sources": ["bm25"],
+                "source_details": {
+                    "bm25": {
+                        "rank": 1,
+                        "score": 10.0,
+                    }
+                },
+            },
+            {
+                "doc_id": "D2",
+                "title": "Second",
+                "snippet": "beta",
+                "candidate_sources": ["bm25"],
+                "source_details": {
+                    "bm25": {
+                        "rank": 2,
+                        "score": 1.0,
+                    }
+                },
+            },
+        ]
+        candidate_generator.fetch_documents_for_candidates.return_value = {
+            "D1": {
+                "doc_id": "D1",
+                "title": "First",
+                "text": "alpha",
+            },
+            "D2": {
+                "doc_id": "D2",
+                "title": "Second",
+                "text": "beta",
+            },
+        }
+
+        service = LTRRetrievalService.__new__(
+            LTRRetrievalService
+        )
+        service.dataset_key = "sample_dataset"
+        service.candidate_count = 2
+        service.candidate_models = ["bm25"]
+        service.include_biomedical = False
+        service.model_path = Path(
+            "artifacts/models/ltr/sample_ltr.joblib"
+        )
+        service.training_metadata = {
+            "dataset": "sample_dataset",
+            "model_type": "MockModel",
+        }
+        service.feature_names = (
+            LTRFeatureExtractor.feature_names
+        )
+        service.extractor = LTRFeatureExtractor(
+            dataset_key="sample_dataset"
+        )
+        service.candidate_generator = (
+            candidate_generator
+        )
+        service.model = MagicMock()
+        service.model.predict.return_value = np.asarray(
+            [
+                0.1,
+                0.9,
+            ]
+        )
+        service.last_search_metadata = {}
+
+        results = service.search(
+            query="beta",
+            top_k=2,
+        )
+
+        self.assertEqual(
+            results[0]["doc_id"],
+            "D2",
+        )
+
+        self.assertEqual(
+            results[0]["model"],
+            "ltr",
+        )
+
+        self.assertTrue(
+            service.last_search_metadata["ltr"]
+        )
+
+    def test_training_script_saves_model_and_metadata(self):
+        from scripts import train_ltr_model as trainer
+
+        class FakeCandidateGenerator:
+            def generate(self, query, candidate_count):
+                return [
+                    {
+                        "doc_id": "D1",
+                        "title": "Alpha",
+                        "snippet": "alpha beta",
+                        "candidate_sources": [
+                            "bm25",
+                        ],
+                        "source_details": {
+                            "bm25": {
+                                "rank": 1,
+                                "score": 1.0,
+                            }
+                        },
+                    },
+                    {
+                        "doc_id": "D2",
+                        "title": "Beta",
+                        "snippet": "beta gamma",
+                        "candidate_sources": [
+                            "bm25",
+                        ],
+                        "source_details": {
+                            "bm25": {
+                                "rank": 2,
+                                "score": 0.5,
+                            }
+                        },
+                    },
+                ]
+
+            def fetch_documents_for_candidates(self, candidates):
+                return {
+                    candidate["doc_id"]: {
+                        "doc_id": candidate["doc_id"],
+                        "title": candidate["title"],
+                        "text": candidate["snippet"],
+                    }
+                    for candidate in candidates
+                }
+
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = (
+                Path(directory)
+                / "sample_ltr.joblib"
+            )
+
+            with patch.object(
+                trainer.DatasetLoader,
+                "load_queries",
+                return_value=[
+                    {
+                        "query_id": "Q1",
+                        "query": "alpha",
+                    },
+                    {
+                        "query_id": "Q2",
+                        "query": "beta",
+                    },
+                ],
+            ), patch.object(
+                trainer.DatasetLoader,
+                "load_qrels",
+                return_value={
+                    "Q1": {
+                        "D1": 1,
+                    },
+                    "Q2": {
+                        "D2": 1,
+                    },
+                },
+            ):
+                summary = trainer.train_ltr_model(
+                    dataset_key="sample_dataset",
+                    candidate_count=2,
+                    output_path=output_path,
+                    candidate_models=["bm25"],
+                    validation_fraction=0.5,
+                    random_seed=7,
+                    candidate_generator=(
+                        FakeCandidateGenerator()
+                    ),
+                )
+
+            metadata_path = Path(
+                summary["metadata_path"]
+            )
+
+            self.assertTrue(
+                output_path.is_file()
+            )
+
+            self.assertTrue(
+                metadata_path.is_file()
+            )
+
+            model = joblib.load(
+                output_path
+            )
+
+            self.assertTrue(
+                hasattr(model, "predict")
+            )
+
+            metadata = json.loads(
+                metadata_path.read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            self.assertEqual(
+                metadata["dataset"],
+                "sample_dataset",
+            )
+
+            self.assertEqual(
+                metadata["feature_names"],
+                LTRFeatureExtractor.feature_names,
+            )
+
+
+class LTREvaluationSupportTests(SimpleTestCase):
+    def _evaluation_script_args(self, **overrides):
+        defaults = {
+            "models": ["ltr"],
+            "retrieval_depth": 1000,
+            "precision_k": 10,
+            "recall_k": 1000,
+            "ndcg_k": 10,
+            "candidate_count": 1000,
+            "bm25_k1": 1.5,
+            "bm25_b": 0.75,
+            "rrf_k": 60,
+            "num_shards": 4,
+            "shard_top_k": None,
+            "ltr_candidate_models": None,
+            "include_biomedical": True,
+            "ltr_model_path": None,
+            "biomedical_weight": 0.0,
+            "use_query_refinement": False,
+            "feedback_docs": 3,
+            "expansion_terms": 5,
+            "query_batch_size": None,
+        }
+        defaults.update(overrides)
+
+        return SimpleNamespace(**defaults)
+
+    def test_ltr_print_configuration_uses_default_model_path(self):
+        from scripts import run_all_evaluations
+
+        args = self._evaluation_script_args(
+            ltr_model_path=None,
+        )
+        expected_path = (
+            run_all_evaluations.resolve_ltr_model_path(
+                dataset_key="clinical_trials",
+                ltr_model_path=None,
+            )
+        )
+
+        with patch("builtins.print") as mocked_print:
+            run_all_evaluations.print_configuration(
+                args=args,
+                dataset_key="clinical_trials",
+                output_path="reports/evaluation/out.csv",
+            )
+
+        printed_output = "\n".join(
+            str(call.args[0])
+            for call in mocked_print.call_args_list
+            if call.args
+        )
+
+        self.assertIn(
+            "LTR model path: ",
+            printed_output,
+        )
+        self.assertIn(
+            expected_path,
+            printed_output,
+        )
+
+    def test_ltr_evaluation_script_passes_default_model_path(self):
+        from scripts import run_all_evaluations
+
+        args = self._evaluation_script_args(
+            ltr_model_path=None,
+        )
+        expected_path = (
+            run_all_evaluations.resolve_ltr_model_path(
+                dataset_key="clinical_trials",
+                ltr_model_path=None,
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = str(
+                Path(tmpdir) / "ltr.csv"
+            )
+
+            with (
+                patch.object(
+                    run_all_evaluations,
+                    "print_configuration",
+                ),
+                patch.object(
+                    run_all_evaluations,
+                    "run_model_evaluation",
+                    return_value={
+                        "dataset": "clinical_trials",
+                        "model": "ltr",
+                    },
+                ) as mocked_run_model,
+                patch.object(
+                    run_all_evaluations,
+                    "save_results_to_csv",
+                ),
+            ):
+                failure_count = (
+                    run_all_evaluations.evaluate_dataset(
+                        args=args,
+                        dataset_key="clinical_trials",
+                        output_path=output_path,
+                    )
+                )
+
+        self.assertEqual(
+            failure_count,
+            0,
+        )
+        self.assertEqual(
+            mocked_run_model.call_args.kwargs[
+                "ltr_model_path"
+            ],
+            expected_path,
+        )
+        self.assertEqual(
+            mocked_run_model.call_args.kwargs[
+                "query_batch_size"
+            ],
+            1,
+        )
+
+    @patch(
+        "evaluation.evaluator.LTRRetrievalService"
+    )
+    @patch(
+        "evaluation.evaluator.DatasetLoader.load_qrels"
+    )
+    @patch(
+        "evaluation.evaluator.DatasetLoader.load_queries"
+    )
+    def test_evaluation_supports_ltr_model(
+        self,
+        mocked_load_queries,
+        mocked_load_qrels,
+        mocked_ltr_service,
+    ):
+        from evaluation.evaluator import (
+            EvaluationRunner,
+        )
+
+        mocked_load_queries.return_value = [
+            {
+                "query_id": "Q1",
+                "query": "alpha",
+            }
+        ]
+        mocked_load_qrels.return_value = {
+            "Q1": {
+                "D1": 1,
+            }
+        }
+
+        service = MagicMock()
+        service.model_path = Path(
+            "artifacts/models/ltr/"
+            "sample_dataset_ltr.joblib"
+        )
+        service.search.return_value = [
+            {
+                "rank": 1,
+                "doc_id": "D1",
+                "score": 0.9,
+            }
+        ]
+        mocked_ltr_service.return_value = service
+
+        runner = EvaluationRunner(
+            dataset_key="sample_dataset",
+            model_name="ltr",
+            retrieval_depth=1,
+            precision_k=1,
+            recall_k=1,
+            ndcg_k=1,
+            candidate_count=2,
+            ltr_candidate_models=["bm25"],
+            ltr_model_path=(
+                "artifacts/models/ltr/"
+                "sample_dataset_ltr.joblib"
+            ),
+        )
+
+        result = runner.evaluate()
+
+        self.assertEqual(
+            result["model"],
+            "ltr",
+        )
+
+        self.assertEqual(
+            result["candidate_count"],
+            2,
+        )
+
+        self.assertEqual(
+            result["ltr_candidate_models"],
+            "bm25",
+        )
+        service.search_batch.assert_not_called()
+
+    @patch(
+        "evaluation.evaluator.gc.collect"
+    )
+    @patch(
+        "evaluation.evaluator.LTRRetrievalService"
+    )
+    @patch(
+        "evaluation.evaluator.DatasetLoader.load_qrels"
+    )
+    @patch(
+        "evaluation.evaluator.DatasetLoader.load_queries"
+    )
+    def test_ltr_evaluation_streams_with_query_batch_size_one(
+        self,
+        mocked_load_queries,
+        mocked_load_qrels,
+        mocked_ltr_service,
+        mocked_gc_collect,
+    ):
+        from evaluation.evaluator import (
+            EvaluationRunner,
+        )
+
+        mocked_load_queries.return_value = [
+            {
+                "query_id": "Q1",
+                "query": "alpha",
+            },
+            {
+                "query_id": "Q2",
+                "query": "beta",
+            },
+        ]
+        mocked_load_qrels.return_value = {
+            "Q1": {
+                "D1": 1,
+            },
+            "Q2": {
+                "D2": 1,
+            },
+        }
+
+        service = MagicMock()
+        service.model_path = Path(
+            "artifacts/models/ltr/"
+            "sample_dataset_ltr.joblib"
+        )
+        service.search.side_effect = [
+            [
+                {
+                    "rank": 1,
+                    "doc_id": "D1",
+                    "score": 0.9,
+                }
+            ],
+            [
+                {
+                    "rank": 1,
+                    "doc_id": "D2",
+                    "score": 0.8,
+                }
+            ],
+        ]
+        mocked_ltr_service.return_value = service
+
+        runner = EvaluationRunner(
+            dataset_key="sample_dataset",
+            model_name="ltr",
+            retrieval_depth=1,
+            precision_k=1,
+            recall_k=1,
+            ndcg_k=1,
+            candidate_count=2,
+            ltr_candidate_models=["bm25"],
+            ltr_model_path=(
+                "artifacts/models/ltr/"
+                "sample_dataset_ltr.joblib"
+            ),
+            query_batch_size=1,
+        )
+
+        result = runner.evaluate()
+
+        self.assertEqual(
+            result["retrieval_mode"],
+            "ltr_streaming",
+        )
+        self.assertEqual(
+            result["query_batch_size"],
+            1,
+        )
+        self.assertEqual(
+            result["evaluated_queries"],
+            2,
+        )
+        self.assertEqual(
+            service.search.call_count,
+            2,
+        )
+        service.search_batch.assert_not_called()
+        mocked_gc_collect.assert_called()
+
+        for call in service.search.call_args_list:
+            self.assertFalse(
+                call.kwargs["hydrate"]
+            )
 
 
 class HybridParallelBiomedicalTests(SimpleTestCase):
@@ -1758,6 +2468,113 @@ class SearchAPITests(APITestCase):
     @patch(
         "retrieval.views.run_search"
     )
+    def test_ltr_search_can_be_requested(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.return_value = {
+            "results": [
+                {
+                    "rank": 1,
+                    "doc_id": "DOC001",
+                    "title": "LTR title",
+                    "snippet": "LTR text",
+                    "score": 0.9,
+                    "model": "ltr",
+                    "ltr_score": 0.9,
+                }
+            ],
+            "metadata": {
+                "ltr": True,
+                "ltr_model_path": (
+                    "artifacts/models/ltr/"
+                    "sample_dataset_ltr.joblib"
+                ),
+                "candidate_count": 5,
+                "candidate_models": [
+                    "bm25",
+                    "tfidf",
+                ],
+                "include_biomedical": False,
+                "feature_count": 27,
+                "training_metadata": {
+                    "model_type": (
+                        "GradientBoostingRegressor"
+                    ),
+                },
+            },
+        }
+
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "machine learning",
+                "dataset": "sample_dataset",
+                "model": "ltr",
+                "top_k": 1,
+                "candidate_count": 5,
+                "ltr_candidate_models": [
+                    "bm25",
+                    "tfidf",
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertTrue(
+            response.data["ltr"]
+        )
+
+        self.assertEqual(
+            response.data["candidate_models"],
+            [
+                "bm25",
+                "tfidf",
+            ],
+        )
+
+        self.assertEqual(
+            response.data["feature_count"],
+            27,
+        )
+
+        self.assertEqual(
+            mocked_run_search.call_args.kwargs[
+                "model"
+            ],
+            "ltr",
+        )
+
+    def test_ltr_rejects_biomedical_for_quora(self):
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "machine learning",
+                "dataset": "quora",
+                "model": "ltr",
+                "include_biomedical": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+        self.assertIn(
+            "include_biomedical",
+            response.data["error"],
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
     def test_hybrid_parallel_accepts_optional_biomedical_weight(
         self,
         mocked_run_search,
@@ -1885,6 +2702,7 @@ class SearchAPITests(APITestCase):
                 "biomedical_embedding",
                 "hybrid_serial",
                 "hybrid_parallel",
+                "ltr",
             },
         )
 

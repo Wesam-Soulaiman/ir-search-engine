@@ -1,3 +1,4 @@
+import gc
 from time import perf_counter
 from typing import Dict, List, Set
 
@@ -29,6 +30,13 @@ from retrieval.hybrid_parallel_service import (
 from retrieval.hybrid_serial_service import (
     HybridSerialRetrievalService,
 )
+from retrieval.ltr_feature_extractor import (
+    DEFAULT_LTR_CANDIDATE_MODELS,
+    normalize_ltr_candidate_models,
+)
+from retrieval.ltr_service import (
+    LTRRetrievalService,
+)
 from retrieval.tfidf_service import (
     TfidfRetrievalService,
 )
@@ -42,7 +50,11 @@ SUPPORTED_MODELS = {
     "biomedical_embedding",
     "hybrid_serial",
     "hybrid_parallel",
+    "ltr",
 }
+
+DEFAULT_EVALUATION_QUERY_BATCH_SIZE = 64
+DEFAULT_LTR_EVALUATION_QUERY_BATCH_SIZE = 1
 
 
 class EvaluationRunner:
@@ -86,11 +98,14 @@ class EvaluationRunner:
         rrf_k: int = 60,
         num_shards: int = 4,
         shard_top_k: int | None = None,
+        ltr_candidate_models: List[str] | None = None,
+        include_biomedical: bool = False,
+        ltr_model_path: str | None = None,
         biomedical_weight: float = 0.0,
         use_query_refinement: bool = False,
         feedback_docs: int = 3,
         expansion_terms: int = 5,
-        query_batch_size: int = 64,
+        query_batch_size: int | None = None,
     ):
         self.dataset_key = str(
             dataset_key
@@ -152,6 +167,28 @@ class EvaluationRunner:
             )
         )
 
+        self.ltr_candidate_models = (
+            normalize_ltr_candidate_models(
+                ltr_candidate_models,
+                include_biomedical=(
+                    include_biomedical
+                ),
+                dataset_key=self.dataset_key,
+            )
+            if self.model_name == "ltr"
+            else list(DEFAULT_LTR_CANDIDATE_MODELS)
+        )
+
+        self.include_biomedical = bool(
+            include_biomedical
+        )
+
+        self.ltr_model_path = (
+            str(ltr_model_path)
+            if ltr_model_path
+            else None
+        )
+
         self.biomedical_weight = float(
             biomedical_weight
         )
@@ -168,8 +205,14 @@ class EvaluationRunner:
             expansion_terms
         )
 
-        self.query_batch_size = int(
-            query_batch_size
+        self.query_batch_size = (
+            int(query_batch_size)
+            if query_batch_size is not None
+            else (
+                DEFAULT_LTR_EVALUATION_QUERY_BATCH_SIZE
+                if self.model_name == "ltr"
+                else DEFAULT_EVALUATION_QUERY_BATCH_SIZE
+            )
         )
 
         self._validate_parameters()
@@ -319,6 +362,16 @@ class EvaluationRunner:
         ):
             raise ValueError(
                 "shard_top_k must be greater than zero."
+            )
+
+        if (
+            self.model_name == "ltr"
+            and self.include_biomedical
+            and self.dataset_key != "clinical_trials"
+        ):
+            raise ValueError(
+                "include_biomedical can only be used with "
+                "ltr on the clinical_trials dataset."
             )
 
         if self.biomedical_weight < 0:
@@ -553,6 +606,29 @@ class EvaluationRunner:
                 ),
             )
 
+        if self.model_name == "ltr":
+            service = LTRRetrievalService(
+                dataset_key=self.dataset_key,
+                candidate_count=(
+                    self.candidate_count
+                ),
+                candidate_models=(
+                    self.ltr_candidate_models
+                ),
+                include_biomedical=(
+                    self.include_biomedical
+                ),
+                model_path=self.ltr_model_path,
+                bm25_k1=self.bm25_k1,
+                bm25_b=self.bm25_b,
+            )
+
+            self.ltr_model_path = str(
+                service.model_path
+            )
+
+            return service
+
         raise ValueError(
             "Unsupported model for evaluation: "
             f"{self.model_name}"
@@ -584,30 +660,36 @@ class EvaluationRunner:
         search_queries: List[str] = []
 
         for query_id in self.evaluation_query_ids:
-            original_query = (
-                self.query_by_id[
-                    query_id
-                ]
-            )
-
-            search_query = original_query
-
-            if (
-                self.use_query_refinement
-                and self.query_refinement_service
-            ):
-                search_query = (
-                    self.query_refinement_service
-                    .refine(
-                        original_query
-                    )
-                )
-
             search_queries.append(
-                search_query
+                self._prepare_search_query(
+                    query_id
+                )
             )
 
         return search_queries
+
+    def _prepare_search_query(
+        self,
+        query_id: str,
+    ) -> str:
+        original_query = (
+            self.query_by_id[
+                query_id
+            ]
+        )
+
+        if (
+            self.use_query_refinement
+            and self.query_refinement_service
+        ):
+            return (
+                self.query_refinement_service
+                .refine(
+                    original_query
+                )
+            )
+
+        return original_query
 
     @staticmethod
     def _deduplicate_document_ids(
@@ -730,6 +812,32 @@ class EvaluationRunner:
 
         return sum(values) / len(values)
 
+    @staticmethod
+    def _add_metric_values(
+        metric_totals: Dict[str, float],
+        metric_values: Dict[str, float],
+    ):
+        for metric_name, value in (
+            metric_values.items()
+        ):
+            metric_totals[metric_name] = (
+                metric_totals.get(
+                    metric_name,
+                    0.0,
+                )
+                + float(value)
+            )
+
+    @staticmethod
+    def _mean_from_total(
+        total: float,
+        count: int,
+    ) -> float:
+        if count <= 0:
+            return 0.0
+
+        return total / count
+
     def evaluate(self) -> Dict:
         total_qrels_queries = len(
             self.qrels_raw
@@ -786,43 +894,24 @@ class EvaluationRunner:
                 f"{queries_without_positive_qrels:,}"
             )
 
-        average_precision_scores: List[
-            float
-        ] = []
-
-        precision_scores: List[
-            float
-        ] = []
-
-        recall_scores: List[
-            float
-        ] = []
-
-        ndcg_scores: List[
-            float
-        ] = []
+        metric_totals = {
+            "average_precision": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "ndcg": 0.0,
+        }
 
         evaluated_queries = 0
         retrieval_elapsed_seconds = 0.0
+        retrieval_mode = "single_query"
+        use_batch_retrieval = False
 
-        search_queries = (
-            self._prepare_search_queries()
-        )
-
-        search_batch_method = getattr(
-            self.retrieval_service,
-            "search_batch",
-            None,
-        )
-
-        use_batch_retrieval = callable(
-            search_batch_method
-        )
-
-        if use_batch_retrieval:
+        if self.model_name == "ltr":
+            retrieval_mode = "ltr_streaming"
+            use_batch_retrieval = True
             print(
                 "Evaluation retrieval mode: "
-                f"{self.model_name.upper()} batch"
+                "LTR streaming"
             )
 
             print(
@@ -847,176 +936,250 @@ class EvaluationRunner:
                     ]
                 )
 
-                batch_search_queries = (
-                    search_queries[
-                        batch_start:batch_end
-                    ]
-                )
-
-                retrieval_start = (
-                    perf_counter()
-                )
-
-                batch_results = (
-                    search_batch_method(
-                        queries=(
-                            batch_search_queries
-                        ),
-                        top_k=(
-                            self.retrieval_depth
-                        ),
-                        query_batch_size=(
-                            self.query_batch_size
-                        ),
-                        hydrate=False,
-                    )
-                )
-
-                retrieval_elapsed_seconds += (
-                    perf_counter()
-                    - retrieval_start
-                )
-
-                if (
-                    len(batch_results)
-                    != len(batch_query_ids)
-                ):
-                    raise ValueError(
-                        "Batch retrieval "
-                        "returned an unexpected number "
-                        "of result lists. "
-                        f"Expected: "
-                        f"{len(batch_query_ids)}, "
-                        f"received: "
-                        f"{len(batch_results)}."
+                for query_id in batch_query_ids:
+                    search_query = (
+                        self._prepare_search_query(
+                            query_id
+                        )
                     )
 
-                for (
-                    query_id,
-                    results,
-                ) in zip(
-                    batch_query_ids,
-                    batch_results,
-                ):
+                    retrieval_start = (
+                        perf_counter()
+                    )
+
+                    results = (
+                        self.retrieval_service.search(
+                            query=search_query,
+                            top_k=(
+                                self.retrieval_depth
+                            ),
+                            hydrate=False,
+                        )
+                    )
+
+                    retrieval_elapsed_seconds += (
+                        perf_counter()
+                        - retrieval_start
+                    )
+
                     metric_values = (
-                        self
-                        ._calculate_query_metrics(
+                        self._calculate_query_metrics(
                             query_id=query_id,
                             results=results,
                         )
                     )
 
-                    average_precision_scores.append(
-                        metric_values[
-                            "average_precision"
-                        ]
-                    )
-
-                    precision_scores.append(
-                        metric_values[
-                            "precision"
-                        ]
-                    )
-
-                    recall_scores.append(
-                        metric_values[
-                            "recall"
-                        ]
-                    )
-
-                    ndcg_scores.append(
-                        metric_values[
-                            "ndcg"
-                        ]
+                    self._add_metric_values(
+                        metric_totals,
+                        metric_values,
                     )
 
                     evaluated_queries += 1
 
+                    del (
+                        results,
+                        metric_values,
+                        search_query,
+                    )
+
                 print(
-                    "Evaluated queries: "
+                    "Evaluated LTR queries: "
                     f"{batch_end:,}/"
                     f"{total_evaluation_queries:,}",
                     flush=True,
                 )
 
+                del batch_query_ids
+                gc.collect()
+
         else:
-            print(
-                "Evaluation retrieval mode: "
-                "single-query"
+            search_queries = (
+                self._prepare_search_queries()
             )
 
-            for query_number, (
-                query_id,
-                search_query,
-            ) in enumerate(
-                zip(
-                    self.evaluation_query_ids,
-                    search_queries,
-                ),
-                start=1,
-            ):
-                retrieval_start = (
-                    perf_counter()
+            search_batch_method = getattr(
+                self.retrieval_service,
+                "search_batch",
+                None,
+            )
+
+            use_batch_retrieval = callable(
+                search_batch_method
+            )
+
+            if use_batch_retrieval:
+                retrieval_mode = "batch"
+                print(
+                    "Evaluation retrieval mode: "
+                    f"{self.model_name.upper()} batch"
                 )
 
-                results = (
-                    self.retrieval_service.search(
-                        query=search_query,
-                        top_k=(
-                            self.retrieval_depth
-                        ),
-                    )
+                print(
+                    "Query batch size: "
+                    f"{self.query_batch_size:,}"
                 )
 
-                retrieval_elapsed_seconds += (
-                    perf_counter()
-                    - retrieval_start
-                )
-
-                metric_values = (
-                    self._calculate_query_metrics(
-                        query_id=query_id,
-                        results=results,
-                    )
-                )
-
-                average_precision_scores.append(
-                    metric_values[
-                        "average_precision"
-                    ]
-                )
-
-                precision_scores.append(
-                    metric_values[
-                        "precision"
-                    ]
-                )
-
-                recall_scores.append(
-                    metric_values[
-                        "recall"
-                    ]
-                )
-
-                ndcg_scores.append(
-                    metric_values[
-                        "ndcg"
-                    ]
-                )
-
-                evaluated_queries += 1
-
-                if (
-                    query_number % 10 == 0
-                    or query_number
-                    == total_evaluation_queries
+                for batch_start in range(
+                    0,
+                    total_evaluation_queries,
+                    self.query_batch_size,
                 ):
+                    batch_end = min(
+                        batch_start
+                        + self.query_batch_size,
+                        total_evaluation_queries,
+                    )
+
+                    batch_query_ids = (
+                        self.evaluation_query_ids[
+                            batch_start:batch_end
+                        ]
+                    )
+
+                    batch_search_queries = (
+                        search_queries[
+                            batch_start:batch_end
+                        ]
+                    )
+
+                    retrieval_start = (
+                        perf_counter()
+                    )
+
+                    batch_results = (
+                        search_batch_method(
+                            queries=(
+                                batch_search_queries
+                            ),
+                            top_k=(
+                                self.retrieval_depth
+                            ),
+                            query_batch_size=(
+                                self.query_batch_size
+                            ),
+                            hydrate=False,
+                        )
+                    )
+
+                    retrieval_elapsed_seconds += (
+                        perf_counter()
+                        - retrieval_start
+                    )
+
+                    if (
+                        len(batch_results)
+                        != len(batch_query_ids)
+                    ):
+                        raise ValueError(
+                            "Batch retrieval "
+                            "returned an unexpected number "
+                            "of result lists. "
+                            f"Expected: "
+                            f"{len(batch_query_ids)}, "
+                            f"received: "
+                            f"{len(batch_results)}."
+                        )
+
+                    for (
+                        query_id,
+                        results,
+                    ) in zip(
+                        batch_query_ids,
+                        batch_results,
+                    ):
+                        metric_values = (
+                            self
+                            ._calculate_query_metrics(
+                                query_id=query_id,
+                                results=results,
+                            )
+                        )
+
+                        self._add_metric_values(
+                            metric_totals,
+                            metric_values,
+                        )
+
+                        evaluated_queries += 1
+
                     print(
                         "Evaluated queries: "
-                        f"{query_number:,}/"
+                        f"{batch_end:,}/"
                         f"{total_evaluation_queries:,}",
                         flush=True,
                     )
+
+                    del (
+                        batch_results,
+                        batch_query_ids,
+                        batch_search_queries,
+                    )
+
+            else:
+                retrieval_mode = "single_query"
+                print(
+                    "Evaluation retrieval mode: "
+                    "single-query"
+                )
+
+                for query_number, (
+                    query_id,
+                    search_query,
+                ) in enumerate(
+                    zip(
+                        self.evaluation_query_ids,
+                        search_queries,
+                    ),
+                    start=1,
+                ):
+                    retrieval_start = (
+                        perf_counter()
+                    )
+
+                    results = (
+                        self.retrieval_service.search(
+                            query=search_query,
+                            top_k=(
+                                self.retrieval_depth
+                            ),
+                        )
+                    )
+
+                    retrieval_elapsed_seconds += (
+                        perf_counter()
+                        - retrieval_start
+                    )
+
+                    metric_values = (
+                        self._calculate_query_metrics(
+                            query_id=query_id,
+                            results=results,
+                        )
+                    )
+
+                    self._add_metric_values(
+                        metric_totals,
+                        metric_values,
+                    )
+
+                    evaluated_queries += 1
+
+                    if (
+                        query_number % 10 == 0
+                        or query_number
+                        == total_evaluation_queries
+                    ):
+                        print(
+                            "Evaluated queries: "
+                            f"{query_number:,}/"
+                            f"{total_evaluation_queries:,}",
+                            flush=True,
+                        )
+
+                    del results, metric_values
+
+            del search_queries
+
 
         if (
             evaluated_queries
@@ -1066,9 +1229,7 @@ class EvaluationRunner:
             "dataset": self.dataset_key,
             "model": self.model_name,
             "retrieval_mode": (
-                "batch"
-                if use_batch_retrieval
-                else "single_query"
+                retrieval_mode
             ),
             "query_batch_size": (
                 self.query_batch_size
@@ -1119,7 +1280,25 @@ class EvaluationRunner:
                 in {
                     "hybrid_serial",
                     "hybrid_parallel",
+                    "ltr",
                 }
+                else None
+            ),
+            "ltr_candidate_models": (
+                " ".join(
+                    self.ltr_candidate_models
+                )
+                if self.model_name == "ltr"
+                else None
+            ),
+            "include_biomedical": (
+                self.include_biomedical
+                if self.model_name == "ltr"
+                else None
+            ),
+            "ltr_model_path": (
+                self.ltr_model_path
+                if self.model_name == "ltr"
                 else None
             ),
             "rrf_k": (
@@ -1154,26 +1333,32 @@ class EvaluationRunner:
                 else None
             ),
             map_key: round(
-                self._mean(
-                    average_precision_scores
+                self._mean_from_total(
+                    metric_totals[
+                        "average_precision"
+                    ],
+                    evaluated_queries,
                 ),
                 6,
             ),
             precision_key: round(
-                self._mean(
-                    precision_scores
+                self._mean_from_total(
+                    metric_totals["precision"],
+                    evaluated_queries,
                 ),
                 6,
             ),
             recall_key: round(
-                self._mean(
-                    recall_scores
+                self._mean_from_total(
+                    metric_totals["recall"],
+                    evaluated_queries,
                 ),
                 6,
             ),
             ndcg_key: round(
-                self._mean(
-                    ndcg_scores
+                self._mean_from_total(
+                    metric_totals["ndcg"],
+                    evaluated_queries,
                 ),
                 6,
             ),

@@ -8,6 +8,7 @@ function SearchSummary({
   const model = info.executed_model || info.model;
   const isWeightedHybrid = model === "hybrid_parallel";
   const isDistributed = Boolean(info.distributed) || model === "distributed_bm25";
+  const isLtr = Boolean(info.ltr) || model === "ltr";
 
   return (
     <section className="search-summary">
@@ -65,6 +66,31 @@ function SearchSummary({
             Shard top-k: {info.shard_top_k}
             {" | "}
             RRF k: {info.rrf_k}
+          </p>
+        </div>
+      ) : null}
+
+      {isLtr ? (
+        <div className="summary-note">
+          <span>LTR: Yes</span>
+          <p>
+            Candidate count: {info.candidate_count}
+            {" | "}
+            Candidate models: {(info.candidate_models || []).join(", ")}
+            {" | "}
+            Include biomedical: {String(Boolean(info.include_biomedical))}
+            {info.feature_count ? (
+              <>
+                {" | "}
+                Features: {info.feature_count}
+              </>
+            ) : null}
+            {info.ltr_model_path ? (
+              <>
+                {" | "}
+                Model: {info.ltr_model_path}
+              </>
+            ) : null}
           </p>
         </div>
       ) : null}

@@ -39,6 +39,8 @@ django.setup()
 from django.conf import settings
 
 from evaluation.evaluator import (
+    DEFAULT_EVALUATION_QUERY_BATCH_SIZE,
+    DEFAULT_LTR_EVALUATION_QUERY_BATCH_SIZE,
     EvaluationRunner,
     SUPPORTED_MODELS,
 )
@@ -181,6 +183,33 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--ltr-candidate-models",
+        nargs="+",
+        default=None,
+        help=(
+            "Candidate sources for LTR. Default: "
+            "bm25 tfidf embedding."
+        ),
+    )
+
+    parser.add_argument(
+        "--include-biomedical",
+        action="store_true",
+        help=(
+            "Include biomedical PubMedBERT candidates for LTR. "
+            "Only valid for clinical_trials."
+        ),
+    )
+
+    parser.add_argument(
+        "--ltr-model-path",
+        default=None,
+        help=(
+            "Optional trained LTR model path used during evaluation."
+        ),
+    )
+
+    parser.add_argument(
         "--use-query-refinement",
         action="store_true",
         help="Enable pseudo-relevance feedback.",
@@ -206,10 +235,11 @@ def parse_args():
     parser.add_argument(
         "--query-batch-size",
         type=int,
-        default=64,
+        default=None,
         help=(
             "Number of queries evaluated together for models "
-            "that support batch retrieval."
+            "that support batch retrieval. Defaults to 64, "
+            "or 1 for LTR."
         ),
     )
 
@@ -399,7 +429,23 @@ def validate_args(args, dataset_keys: List[str]):
             "on the clinical_trials dataset."
         )
 
-    if args.query_batch_size <= 0:
+    if (
+        args.include_biomedical
+        and "ltr" in args.models
+        and any(
+            dataset_key != "clinical_trials"
+            for dataset_key in dataset_keys
+        )
+    ):
+        raise ValueError(
+            "include-biomedical can only be used with ltr "
+            "on the clinical_trials dataset."
+        )
+
+    if (
+        args.query_batch_size is not None
+        and args.query_batch_size <= 0
+    ):
         raise ValueError(
             "query-batch-size must be greater "
             "than zero."
@@ -455,6 +501,52 @@ def get_default_output_path(
     )
 
 
+def resolve_ltr_model_path(
+    dataset_key: str,
+    ltr_model_path: str | None = None,
+) -> str:
+    if ltr_model_path:
+        path = Path(
+            ltr_model_path
+        ).expanduser()
+    else:
+        artifacts_dir = Path(
+            getattr(
+                settings,
+                "ARTIFACTS_DIR",
+                settings.BASE_DIR.parent
+                / "artifacts",
+            )
+        )
+        path = (
+            artifacts_dir
+            / "models"
+            / "ltr"
+            / f"{dataset_key}_ltr.joblib"
+        )
+
+    if not path.is_absolute():
+        path = (
+            settings.BASE_DIR.parent
+            / path
+        )
+
+    return str(path.resolve())
+
+
+def resolve_query_batch_size(
+    model_name: str,
+    query_batch_size: int | None,
+) -> int:
+    if query_batch_size is not None:
+        return int(query_batch_size)
+
+    if model_name == "ltr":
+        return DEFAULT_LTR_EVALUATION_QUERY_BATCH_SIZE
+
+    return DEFAULT_EVALUATION_QUERY_BATCH_SIZE
+
+
 def run_model_evaluation(
     dataset_key: str,
     model_name: str,
@@ -468,12 +560,30 @@ def run_model_evaluation(
     rrf_k: int,
     num_shards: int,
     shard_top_k: int | None,
+    ltr_candidate_models: List[str] | None,
+    include_biomedical: bool,
+    ltr_model_path: str | None,
     biomedical_weight: float,
     use_query_refinement: bool,
     feedback_docs: int,
     expansion_terms: int,
-    query_batch_size: int,
+    query_batch_size: int | None,
 ) -> Dict:
+    resolved_ltr_model_path = (
+        resolve_ltr_model_path(
+            dataset_key=dataset_key,
+            ltr_model_path=ltr_model_path,
+        )
+        if model_name == "ltr"
+        else ltr_model_path
+    )
+    resolved_query_batch_size = (
+        resolve_query_batch_size(
+            model_name=model_name,
+            query_batch_size=query_batch_size,
+        )
+    )
+
     runner = EvaluationRunner(
         dataset_key=dataset_key,
         model_name=model_name,
@@ -487,13 +597,24 @@ def run_model_evaluation(
         rrf_k=rrf_k,
         num_shards=num_shards,
         shard_top_k=shard_top_k,
+        ltr_candidate_models=(
+            ltr_candidate_models
+        ),
+        include_biomedical=(
+            include_biomedical
+        ),
+        ltr_model_path=(
+            resolved_ltr_model_path
+        ),
         biomedical_weight=biomedical_weight,
         use_query_refinement=(
             use_query_refinement
         ),
         feedback_docs=feedback_docs,
         expansion_terms=expansion_terms,
-        query_batch_size=query_batch_size,
+        query_batch_size=(
+            resolved_query_batch_size
+        ),
     )
 
     return runner.evaluate()
@@ -565,12 +686,30 @@ def build_failure_result(
             100,
         )
     )
+    resolved_ltr_model_path = (
+        resolve_ltr_model_path(
+            dataset_key=dataset_key,
+            ltr_model_path=(
+                args.ltr_model_path
+            ),
+        )
+        if model_name == "ltr"
+        else None
+    )
+    resolved_query_batch_size = (
+        resolve_query_batch_size(
+            model_name=model_name,
+            query_batch_size=args.query_batch_size,
+        )
+    )
 
     return {
         "dataset": dataset_key,
         "model": model_name,
         "retrieval_mode": None,
-        "query_batch_size": args.query_batch_size,
+        "query_batch_size": (
+            resolved_query_batch_size
+        ),
         "retrieval_depth": (
             args.retrieval_depth
         ),
@@ -605,8 +744,29 @@ def build_failure_result(
             in {
                 "hybrid_serial",
                 "hybrid_parallel",
+                "ltr",
             }
             else None
+        ),
+        "ltr_candidate_models": (
+            " ".join(
+                args.ltr_candidate_models
+                or [
+                    "bm25",
+                    "tfidf",
+                    "embedding",
+                ]
+            )
+            if model_name == "ltr"
+            else None
+        ),
+        "include_biomedical": (
+            args.include_biomedical
+            if model_name == "ltr"
+            else None
+        ),
+        "ltr_model_path": (
+            resolved_ltr_model_path
         ),
         "rrf_k": (
             args.rrf_k
@@ -665,6 +825,34 @@ def print_configuration(
             100,
         )
     )
+    ltr_requested = "ltr" in args.models
+    resolved_ltr_model_path = (
+        resolve_ltr_model_path(
+            dataset_key=dataset_key,
+            ltr_model_path=(
+                args.ltr_model_path
+            ),
+        )
+        if ltr_requested
+        else None
+    )
+    default_query_batch_size = (
+        resolve_query_batch_size(
+            model_name="bm25",
+            query_batch_size=args.query_batch_size,
+        )
+    )
+    ltr_query_batch_size = (
+        resolve_query_batch_size(
+            model_name="ltr",
+            query_batch_size=args.query_batch_size,
+        )
+    )
+    display_query_batch_size = (
+        ltr_query_batch_size
+        if set(args.models) == {"ltr"}
+        else default_query_batch_size
+    )
 
     print("=" * 70)
     print("Evaluation configuration")
@@ -694,6 +882,30 @@ def print_configuration(
         "Candidate count: "
         f"{args.candidate_count:,}"
     )
+    if ltr_requested:
+        print(
+            "LTR candidate models: "
+            + " ".join(
+                args.ltr_candidate_models
+                or [
+                    "bm25",
+                    "tfidf",
+                    "embedding",
+                ]
+            )
+        )
+        print(
+            "LTR include biomedical: "
+            f"{args.include_biomedical}"
+        )
+        print(
+            "LTR model path: "
+            f"{resolved_ltr_model_path}"
+        )
+        print(
+            "LTR query batch size: "
+            f"{ltr_query_batch_size:,}"
+        )
     print(
         "Distributed shards: "
         f"{args.num_shards:,}"
@@ -712,7 +924,7 @@ def print_configuration(
     )
     print(
         "Query batch size: "
-        f"{args.query_batch_size:,}"
+        f"{display_query_batch_size:,}"
     )
     print(
         "Query refinement: "
@@ -749,6 +961,25 @@ def evaluate_dataset(
         print("=" * 70)
 
         try:
+            resolved_ltr_model_path = (
+                resolve_ltr_model_path(
+                    dataset_key=dataset_key,
+                    ltr_model_path=(
+                        args.ltr_model_path
+                    ),
+                )
+                if model_name == "ltr"
+                else args.ltr_model_path
+            )
+            resolved_query_batch_size = (
+                resolve_query_batch_size(
+                    model_name=model_name,
+                    query_batch_size=(
+                        args.query_batch_size
+                    ),
+                )
+            )
+
             result = run_model_evaluation(
                 dataset_key=dataset_key,
                 model_name=model_name,
@@ -768,6 +999,15 @@ def evaluate_dataset(
                 rrf_k=args.rrf_k,
                 num_shards=args.num_shards,
                 shard_top_k=args.shard_top_k,
+                ltr_candidate_models=(
+                    args.ltr_candidate_models
+                ),
+                include_biomedical=(
+                    args.include_biomedical
+                ),
+                ltr_model_path=(
+                    resolved_ltr_model_path
+                ),
                 biomedical_weight=args.biomedical_weight,
                 use_query_refinement=(
                     args.use_query_refinement
@@ -779,7 +1019,7 @@ def evaluate_dataset(
                     args.expansion_terms
                 ),
                 query_batch_size=(
-                    args.query_batch_size
+                    resolved_query_batch_size
                 ),
             )
 

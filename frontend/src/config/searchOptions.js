@@ -62,6 +62,12 @@ export const MODELS = [
     description: "Weighted fusion of TF-IDF, BM25, and Embedding results.",
     tag: "Weighted fusion",
   },
+  {
+    value: "ltr",
+    label: "Learning to Rank (LTR)",
+    description: "Trained reranker over lexical and semantic candidates.",
+    tag: "Reranker",
+  },
 ];
 
 export const EXAMPLE_QUERIES = {
@@ -88,6 +94,12 @@ export const DEFAULT_SEARCH_FORM = {
   rrfK: 60,
   numShards: 4,
   shardTopK: 100,
+  ltrCandidateModels: {
+    bm25: true,
+    tfidf: true,
+    embedding: true,
+  },
+  includeBiomedical: false,
   tfidfWeight: 1.0,
   bm25Weight: 1.0,
   embeddingWeight: 1.0,

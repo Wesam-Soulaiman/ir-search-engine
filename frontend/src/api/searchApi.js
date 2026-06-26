@@ -67,6 +67,13 @@ export async function searchDocuments(form) {
     payload.shard_top_k = Number(form.shardTopK);
   }
 
+  if (form.model === "ltr") {
+    payload.ltr_candidate_models = Object.entries(form.ltrCandidateModels || {})
+      .filter(([, enabled]) => Boolean(enabled))
+      .map(([modelName]) => modelName);
+    payload.include_biomedical = Boolean(form.includeBiomedical);
+  }
+
   const response = await axios.post(`${API_BASE_URL}/search/`, payload);
   return response.data;
 }

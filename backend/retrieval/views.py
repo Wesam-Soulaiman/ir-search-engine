@@ -42,6 +42,13 @@ from retrieval.hybrid_parallel_service import (
 from retrieval.hybrid_serial_service import (
     HybridSerialRetrievalService,
 )
+from retrieval.ltr_feature_extractor import (
+    DEFAULT_LTR_CANDIDATE_MODELS,
+    normalize_ltr_candidate_models,
+)
+from retrieval.ltr_service import (
+    LTRRetrievalService,
+)
 from retrieval.personalization_service import (
     PersonalizedQueryService,
 )
@@ -74,6 +81,7 @@ SUPPORTED_MODELS = {
     "biomedical_embedding",
     "hybrid_serial",
     "hybrid_parallel",
+    "ltr",
     "agent",
 }
 
@@ -216,6 +224,31 @@ def get_hybrid_parallel_service(
 
 
 @lru_cache(maxsize=16)
+def get_ltr_service(
+    dataset_key: str = DEFAULT_DATASET,
+    candidate_count: int = DEFAULT_CANDIDATE_COUNT,
+    candidate_models: tuple[str, ...] = tuple(
+        DEFAULT_LTR_CANDIDATE_MODELS
+    ),
+    include_biomedical: bool = False,
+    bm25_k1: float = DEFAULT_BM25_K1,
+    bm25_b: float = DEFAULT_BM25_B,
+    model_path: str | None = None,
+):
+    return LTRRetrievalService(
+        dataset_key=dataset_key,
+        candidate_count=int(candidate_count),
+        candidate_models=list(candidate_models),
+        include_biomedical=bool(
+            include_biomedical
+        ),
+        bm25_k1=float(bm25_k1),
+        bm25_b=float(bm25_b),
+        model_path=model_path,
+    )
+
+
+@lru_cache(maxsize=16)
 def get_query_refinement_service(
     dataset_key: str = DEFAULT_DATASET,
     bm25_k1: float = DEFAULT_BM25_K1,
@@ -342,6 +375,48 @@ def normalize_string_field(
         )
 
     return normalized_value
+
+
+def normalize_string_list_field(
+    value: Any,
+    field_name: str,
+    default: list[str],
+) -> list[str]:
+    if value is None:
+        return list(default)
+
+    if isinstance(value, str):
+        values = [
+            item.strip()
+            for item in value.split(",")
+            if item.strip()
+        ]
+
+    elif isinstance(value, list):
+        values = []
+
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError(
+                    f"'{field_name}' must contain strings."
+                )
+
+            cleaned = item.strip()
+
+            if cleaned:
+                values.append(cleaned)
+
+    else:
+        raise ValueError(
+            f"'{field_name}' must be a list of strings."
+        )
+
+    if not values:
+        raise ValueError(
+            f"'{field_name}' cannot be empty."
+        )
+
+    return values
 
 
 def validate_dataset(
@@ -506,6 +581,27 @@ def parse_search_request(
         maximum=MAX_HYBRID_WEIGHT,
     )
 
+    ltr_candidate_models = normalize_string_list_field(
+        value=request_data.get(
+            "ltr_candidate_models"
+        ),
+        field_name="ltr_candidate_models",
+        default=DEFAULT_LTR_CANDIDATE_MODELS,
+    )
+
+    include_biomedical = parse_boolean(
+        value=request_data.get(
+            "include_biomedical",
+            False,
+        ),
+        field_name="include_biomedical",
+    )
+
+    ltr_model_path = normalize_optional_string_field(
+        request_data.get("ltr_model_path"),
+        field_name="ltr_model_path",
+    )
+
     if (
         model == "biomedical_embedding"
         and dataset_key != "clinical_trials"
@@ -523,6 +619,27 @@ def parse_search_request(
         raise ValueError(
             "biomedical_weight can only be used with the "
             "clinical_trials dataset."
+        )
+
+    if (
+        model == "ltr"
+        and include_biomedical
+        and dataset_key != "clinical_trials"
+    ):
+        raise ValueError(
+            "include_biomedical is only supported for the "
+            "clinical_trials dataset."
+        )
+
+    if model == "ltr":
+        ltr_candidate_models = (
+            normalize_ltr_candidate_models(
+                ltr_candidate_models,
+                include_biomedical=(
+                    include_biomedical
+                ),
+                dataset_key=dataset_key,
+            )
         )
 
     use_query_refinement = parse_boolean(
@@ -649,6 +766,13 @@ def parse_search_request(
         "bm25_weight": bm25_weight,
         "embedding_weight": embedding_weight,
         "biomedical_weight": biomedical_weight,
+        "ltr_candidate_models": (
+            ltr_candidate_models
+        ),
+        "include_biomedical": (
+            include_biomedical
+        ),
+        "ltr_model_path": ltr_model_path,
         "use_query_refinement": (
             use_query_refinement
         ),
@@ -739,6 +863,9 @@ def run_search(
     biomedical_weight: float = DEFAULT_BIOMEDICAL_WEIGHT,
     num_shards: int | None = None,
     shard_top_k: int | None = None,
+    ltr_candidate_models: list[str] | None = None,
+    include_biomedical: bool = False,
+    ltr_model_path: str | None = None,
 ):
     if model == "tfidf":
         service = get_tfidf_service(
@@ -816,6 +943,44 @@ def run_search(
             query=query,
             top_k=top_k,
         )
+
+    if model == "ltr":
+        normalized_candidate_models = (
+            normalize_ltr_candidate_models(
+                ltr_candidate_models,
+                include_biomedical=(
+                    include_biomedical
+                ),
+                dataset_key=dataset_key,
+            )
+        )
+
+        service = get_ltr_service(
+            dataset_key=dataset_key,
+            candidate_count=candidate_count,
+            candidate_models=tuple(
+                normalized_candidate_models
+            ),
+            include_biomedical=(
+                include_biomedical
+            ),
+            bm25_k1=bm25_k1,
+            bm25_b=bm25_b,
+            model_path=ltr_model_path,
+        )
+
+        results = service.search(
+            query=query,
+            top_k=top_k,
+            candidate_count=candidate_count,
+        )
+
+        return {
+            "results": results,
+            "metadata": (
+                service.get_last_search_metadata()
+            ),
+        }
 
     if model == "hybrid_parallel":
         service = get_hybrid_parallel_service(
@@ -1156,15 +1321,28 @@ def search_view(request):
             biomedical_weight=parameters["biomedical_weight"],
             num_shards=parameters["num_shards"],
             shard_top_k=parameters["shard_top_k"],
+            ltr_candidate_models=(
+                parameters[
+                    "ltr_candidate_models"
+                ]
+            ),
+            include_biomedical=(
+                parameters[
+                    "include_biomedical"
+                ]
+            ),
+            ltr_model_path=(
+                parameters["ltr_model_path"]
+            ),
         )
 
-        distributed_metadata: Dict[str, Any] = {}
+        model_metadata: Dict[str, Any] = {}
 
         if (
             isinstance(results, dict)
             and "results" in results
         ):
-            distributed_metadata = dict(
+            model_metadata = dict(
                 results.get("metadata", {})
                 or {}
             )
@@ -1200,6 +1378,10 @@ def search_view(request):
                 "hybrid_serial",
                 "hybrid_parallel",
             }
+        )
+
+        model_is_ltr = (
+            executed_model == "ltr"
         )
 
         model_is_hybrid = (
@@ -1286,11 +1468,14 @@ def search_view(request):
             ),
             "candidate_count": (
                 parameters["candidate_count"]
-                if model_is_hybrid
+                if (
+                    model_is_hybrid
+                    or model_is_ltr
+                )
                 else None
             ),
             "rrf_k": (
-                distributed_metadata.get(
+                model_metadata.get(
                     "rrf_k"
                 )
                 if model_is_distributed
@@ -1301,14 +1486,14 @@ def search_view(request):
                 )
             ),
             "num_shards": (
-                distributed_metadata.get(
+                model_metadata.get(
                     "num_shards"
                 )
                 if model_is_distributed
                 else None
             ),
             "shard_top_k": (
-                distributed_metadata.get(
+                model_metadata.get(
                     "shard_top_k"
                 )
                 if model_is_distributed
@@ -1373,25 +1558,62 @@ def search_view(request):
             response_payload.update({
                 "distributed": True,
                 "shards_queried": (
-                    distributed_metadata.get(
+                    model_metadata.get(
                         "shards_queried"
                     )
                 ),
                 "merge_method": (
-                    distributed_metadata.get(
+                    model_metadata.get(
                         "merge_method",
                         "RRF",
                     )
                 ),
                 "shard_result_counts": (
-                    distributed_metadata.get(
+                    model_metadata.get(
                         "shard_result_counts",
                         {},
                     )
                 ),
                 "shard_document_counts": (
-                    distributed_metadata.get(
+                    model_metadata.get(
                         "shard_document_counts",
+                        {},
+                    )
+                ),
+            })
+
+        if model_is_ltr:
+            response_payload.update({
+                "ltr": True,
+                "ltr_model_path": (
+                    model_metadata.get(
+                        "ltr_model_path"
+                    )
+                ),
+                "candidate_models": (
+                    model_metadata.get(
+                        "candidate_models",
+                        parameters[
+                            "ltr_candidate_models"
+                        ],
+                    )
+                ),
+                "include_biomedical": (
+                    model_metadata.get(
+                        "include_biomedical",
+                        parameters[
+                            "include_biomedical"
+                        ],
+                    )
+                ),
+                "feature_count": (
+                    model_metadata.get(
+                        "feature_count"
+                    )
+                ),
+                "training_metadata": (
+                    model_metadata.get(
+                        "training_metadata",
                         {},
                     )
                 ),
