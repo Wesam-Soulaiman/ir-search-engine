@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "description": "Curated final-report evaluation CSV files used by the Analytics dashboard. Files not listed here remain available through the CSV inspection endpoint only.",
+  "sections": {
+    "model_comparison": {
+      "label": "Model Quality Comparison",
+      "description": "Final report quality rows for the main retrieval models across Quora and Clinical Trials.",
+      "files": [
+        "quora_full_tfidf.csv",
+        "quora_full_bm25.csv",
+        "quora_hybrid_serial_depth_100.csv",
+        "quora_hybrid_parallel_depth_100.csv",
+        "quora_ltr_c500.csv",
+        "clinical_trials_full_tfidf.csv",
+        "clinical_trials_bm25_baseline.csv",
+        "clinical_trials_distributed_bm25.csv",
+        "clinical_trials_biomedical_embedding.csv",
+        "clinical_trials_hybrid_parallel_biomedical.csv",
+        "clinical_trials_ltr.csv"
+      ]
+    },
+    "query_refinement_before_after": {
+      "label": "Query Refinement Before/After",
+      "description": "BM25 baseline and refinement runs selected for before/after comparison.",
+      "files": [
+        "quora_full_bm25.csv",
+        "quora_bm25_refinement_depth_100.csv",
+        "clinical_trials_bm25_baseline.csv",
+        "clinical_trials_bm25_refinement_depth_100.csv",
+        "clinical_trials_bm25_refinement_improved_fd1_terms2_depth_100.csv"
+      ]
+    },
+    "runtime_comparison": {
+      "label": "Runtime Comparison",
+      "description": "Selected final runs with wall time, latency, or QPS columns.",
+      "files": [
+        "quora_full_tfidf.csv",
+        "quora_full_bm25.csv",
+        "quora_hybrid_parallel_batch.csv",
+        "quora_ltr_c500.csv",
+        "clinical_trials_bm25_baseline.csv",
+        "clinical_trials_distributed_bm25.csv",
+        "clinical_trials_hybrid_parallel_batch.csv",
+        "clinical_trials_ltr.csv"
+      ]
+    },
+    "extra_features": {
+      "label": "Extra Features",
+      "description": "Evaluation rows for extra IR features integrated into the system UI.",
+      "files": [
+        "clinical_trials_distributed_bm25.csv",
+        "clinical_trials_biomedical_embedding.csv",
+        "clinical_trials_hybrid_parallel_biomedical.csv",
+        "clinical_trials_ltr.csv",
+        "quora_ltr_c500.csv",
+        "quora_hybrid_parallel_batch.csv"
+      ]
+    }
+  }
+}

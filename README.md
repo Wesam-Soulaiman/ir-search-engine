@@ -97,6 +97,22 @@ The project evaluates models using:
 
 ---
 
+## Analytics and Visualization
+
+The React UI includes an **Analytics** area with three chart sections:
+
+* **Evaluation Dashboard** visualizes evaluation metrics from selected report-ready CSV files listed in `reports/evaluation/report_manifest.json`.
+* **Clustering Analytics** shows cluster size distribution, top terms per selected cluster, and representative documents.
+* **Topic Detection Analytics** shows topic frequency, representative topic terms, and example documents.
+
+Evaluation metrics are loaded through the Django REST API and normalized from common CSV columns such as `MAP`, `MAP@100`, `Precision@10`, `Recall@K`, `nDCG@10`, `EvaluationWallTimeSeconds`, `AverageQueryTimeMs`, and `QueriesPerSecond`.
+
+Old, debug, sample, and partial CSV files in `reports/evaluation` are not loaded into the final charts by default. They remain visible through the inspection endpoint `GET /api/analytics/evaluation/files/`, and they only appear in charts after being added to `report_manifest.json`.
+
+Charts are implemented with **Recharts** in the React frontend, not manual CSS bars.
+
+---
+
 ## Latest Evaluation Results
 
 ### Quora

@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { searchDocuments } from "./api/searchApi";
 import AdvancedPanel from "./components/AdvancedPanel";
+import AnalyticsDashboard from "./components/AnalyticsDashboard";
 import AppHeader from "./components/AppHeader";
 import ControlPanel from "./components/ControlPanel";
 import ErrorToast from "./components/ErrorToast";
@@ -18,6 +19,8 @@ import "./App.css";
 
 function App() {
   const [form, setForm] = useState(DEFAULT_SEARCH_FORM);
+  const [activeView, setActiveView] = useState("search");
+  const [activeAnalyticsTab, setActiveAnalyticsTab] = useState("evaluation");
   const [results, setResults] = useState([]);
   const [responseInfo, setResponseInfo] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
@@ -128,55 +131,80 @@ function App() {
 
   return (
     <main className="app-shell">
-      <AppHeader />
-
-      <Hero
-        query={form.query}
-        dataset={form.dataset}
-        loading={loading}
-        onQueryChange={(value) => updateField("query", value)}
-        onSubmit={runSearch}
-        onPickExample={(query) => updateField("query", query)}
+      <AppHeader
+        activeView={activeView}
+        onNavigate={setActiveView}
       />
 
-      <section className="workspace">
-        <div className="workspace-main">
-          <ControlPanel
+      {activeView === "search" ? (
+        <>
+          <Hero
+            query={form.query}
+            dataset={form.dataset}
+            loading={loading}
+            onQueryChange={(value) => updateField("query", value)}
+            onSubmit={runSearch}
+            onPickExample={(query) => updateField("query", query)}
+          />
+
+          <section className="workspace">
+            <div className="workspace-main">
+              <ControlPanel
+                form={form}
+                onFieldChange={updateField}
+              />
+
+              <AdvancedPanel
+                form={form}
+                onFieldChange={updateField}
+              />
+
+              {form.model === "rag" ? (
+                <RagChatPanel
+                  form={form}
+                  onFieldChange={updateField}
+                />
+              ) : null}
+
+              <SearchSummary info={responseInfo} />
+
+              {loading ? (
+                <LoadingResults />
+              ) : (
+                <ResultsSection
+                  results={results}
+                  hasSearched={hasSearched}
+                  info={responseInfo}
+                />
+              )}
+            </div>
+
+            <aside className="workspace-aside">
+              <FeatureCards />
+
+              <InsightsPanel dataset={form.dataset} />
+            </aside>
+          </section>
+        </>
+      ) : null}
+
+      {activeView === "rag" ? (
+        <section className="single-workspace">
+          <RagChatPanel
             form={form}
             onFieldChange={updateField}
           />
+        </section>
+      ) : null}
 
-          <AdvancedPanel
-            form={form}
-            onFieldChange={updateField}
-          />
-
-          {form.model === "rag" ? (
-            <RagChatPanel
-              form={form}
-              onFieldChange={updateField}
-            />
-          ) : null}
-
-          <SearchSummary info={responseInfo} />
-
-          {loading ? (
-            <LoadingResults />
-          ) : (
-            <ResultsSection
-              results={results}
-              hasSearched={hasSearched}
-              info={responseInfo}
-            />
-          )}
-        </div>
-
-        <aside className="workspace-aside">
-          <FeatureCards />
-
-          <InsightsPanel dataset={form.dataset} />
-        </aside>
-      </section>
+      {activeView === "analytics" ? (
+        <AnalyticsDashboard
+          dataset={form.dataset}
+          activeTab={activeAnalyticsTab}
+          onDatasetChange={(value) => updateField("dataset", value)}
+          onTabChange={setActiveAnalyticsTab}
+        />
+      ) : null}
 
       <ErrorToast
         message={errorMessage}

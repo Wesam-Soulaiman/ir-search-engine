@@ -41,12 +41,7 @@ function InsightsPanel({ dataset }) {
     [rows],
   );
 
-  const chartRows = sortedRows.slice(0, 10);
   const listRows = sortedRows.slice(0, 8);
-  const maxDocumentCount = Math.max(
-    1,
-    ...chartRows.map((row) => toNumber(row.document_count)),
-  );
 
   const loadInsights = async (tab = activeTab) => {
     setLoading(true);
@@ -131,51 +126,6 @@ function InsightsPanel({ dataset }) {
       )}
 
       {errorMessage ? <div className="insights-error">{errorMessage}</div> : null}
-
-      {chartRows.length ? (
-        <div className="cluster-chart-card">
-          <div className="cluster-chart-header">
-            <strong>
-              {activeTab === "topics"
-                ? "Topic size chart"
-                : "Cluster distribution chart"}
-            </strong>
-            <small>Top 10 by document count</small>
-          </div>
-
-          <div className="cluster-chart">
-            {chartRows.map((row) => {
-              const documentCount = toNumber(row.document_count);
-              const width = Math.max(
-                6,
-                (documentCount / maxDocumentCount) * 100,
-              );
-
-              return (
-                <div
-                  className="chart-row"
-                  key={`chart-${activeTab}-${row.cluster_id}`}
-                >
-                  <span className="chart-label">C{row.cluster_id}</span>
-
-                  <div className="chart-track">
-                    <div
-                      className="chart-bar"
-                      style={{
-                        width: `${width}%`,
-                      }}
-                    />
-                  </div>
-
-                  <span className="chart-value">
-                    {formatNumber(documentCount)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
 
       <div className="insights-list">
         {listRows.map((row) => {

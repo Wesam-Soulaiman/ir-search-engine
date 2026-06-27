@@ -3577,3 +3577,193 @@ class SearchResultEnrichmentTests(
             results[0]["document_source"],
             "retrieval_index",
         )
+
+
+class EvaluationCsvDashboardTests(SimpleTestCase):
+    def test_missing_manifest_returns_empty_dashboard(self):
+        from retrieval.evaluation_csv_service import (
+            NO_REPORT_MANIFEST_MESSAGE,
+            load_evaluation_dashboard,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            reports_root = Path(directory) / "reports"
+            evaluation_dir = reports_root / "evaluation"
+            evaluation_dir.mkdir(parents=True)
+
+            (
+                evaluation_dir
+                / "sample_unselected.csv"
+            ).write_text(
+                (
+                    "dataset,model,MAP,Precision@10,Recall@10,nDCG@10\n"
+                    "sample_dataset,bm25,0.2,0.4,0.6,0.5\n"
+                ),
+                encoding="utf-8",
+            )
+
+            dashboard = load_evaluation_dashboard(
+                reports_root=reports_root,
+            )
+
+        self.assertFalse(dashboard["manifest_found"])
+        self.assertEqual(dashboard["message"], NO_REPORT_MANIFEST_MESSAGE)
+        self.assertEqual(dashboard["row_count"], 0)
+        self.assertEqual(dashboard["rows"], [])
+
+    def test_manifest_loads_only_selected_sections(self):
+        from retrieval.evaluation_csv_service import (
+            load_evaluation_dashboard,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            reports_root = Path(directory) / "reports"
+            evaluation_dir = reports_root / "evaluation"
+            evaluation_dir.mkdir(parents=True)
+
+            (
+                evaluation_dir
+                / "sample_full_bm25.csv"
+            ).write_text(
+                (
+                    "dataset,model,MAP@100,Precision@10,Recall@100,"
+                    "nDCG@10,EvaluationWallTimeSeconds\n"
+                    "sample_dataset,bm25,0.2,0.4,0.6,0.5,1.25\n"
+                ),
+                encoding="utf-8",
+            )
+            (
+                evaluation_dir
+                / "sample_bm25_refinement_depth_100.csv"
+            ).write_text(
+                (
+                    "dataset,model,MAP,Precision@10,Recall@10,nDCG@10,"
+                    "AverageQueryTimeMs,QueriesPerSecond\n"
+                    "sample_dataset,bm25,0.3,0.45,0.65,0.55,12.5,80\n"
+                ),
+                encoding="utf-8",
+            )
+            (
+                evaluation_dir
+                / "sample_unselected.csv"
+            ).write_text(
+                (
+                    "dataset,model,MAP,Precision@10,Recall@10,nDCG@10\n"
+                    "sample_dataset,embedding,0.9,0.9,0.9,0.9\n"
+                ),
+                encoding="utf-8",
+            )
+            (
+                evaluation_dir
+                / "report_manifest.json"
+            ).write_text(
+                json.dumps({
+                    "sections": {
+                        "model_comparison": {
+                            "label": "Model rows",
+                            "description": "Selected model rows",
+                            "files": [
+                                "sample_full_bm25.csv",
+                            ],
+                        },
+                        "query_refinement_before_after": {
+                            "files": [
+                                "sample_full_bm25.csv",
+                                "sample_bm25_refinement_depth_100.csv",
+                            ],
+                        },
+                        "runtime_comparison": {
+                            "files": [
+                                "sample_full_bm25.csv",
+                            ],
+                        },
+                        "extra_features": {
+                            "files": [],
+                        },
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            dashboard = load_evaluation_dashboard(
+                reports_root=reports_root,
+            )
+
+        self.assertTrue(dashboard["manifest_found"])
+        self.assertEqual(dashboard["file_count"], 2)
+        self.assertEqual(
+            dashboard["sections"]["model_comparison"]["row_count"],
+            1,
+        )
+        self.assertEqual(
+            dashboard["sections"][
+                "query_refinement_before_after"
+            ]["row_count"],
+            2,
+        )
+        self.assertFalse(
+            any(
+                row["model"] == "embedding"
+                for row in dashboard["rows"]
+            )
+        )
+
+        model_row = dashboard["sections"]["model_comparison"]["rows"][0]
+
+        self.assertEqual(model_row["scenario"], "bm25_baseline")
+        self.assertEqual(model_row["comparison_phase"], "before")
+        self.assertEqual(model_row["source_csv"], "evaluation/sample_full_bm25.csv")
+        self.assertEqual(model_row["map"], 0.2)
+
+        phases = {
+            row["comparison_phase"]
+            for row in dashboard["sections"][
+                "query_refinement_before_after"
+            ]["rows"]
+        }
+
+        self.assertEqual(
+            phases,
+            {
+                "before",
+                "after",
+            },
+        )
+
+    def test_lists_available_csv_files_for_inspection(self):
+        from retrieval.evaluation_csv_service import (
+            list_evaluation_csv_files,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            reports_root = Path(directory) / "reports"
+            evaluation_dir = reports_root / "evaluation"
+            evaluation_dir.mkdir(parents=True)
+
+            (
+                evaluation_dir
+                / "sample_file.csv"
+            ).write_text(
+                (
+                    "dataset,model,MAP\n"
+                    "sample_dataset,bm25,0.2\n"
+                    "sample_dataset,tfidf,0.1\n"
+                ),
+                encoding="utf-8",
+            )
+
+            inventory = list_evaluation_csv_files(
+                reports_root=reports_root,
+            )
+
+        self.assertEqual(inventory["file_count"], 1)
+        self.assertEqual(inventory["files"][0]["name"], "sample_file.csv")
+        self.assertEqual(inventory["files"][0]["row_count"], 2)
+        self.assertEqual(
+            inventory["files"][0]["detected_columns"],
+            [
+                "dataset",
+                "model",
+                "MAP",
+            ],
+        )
