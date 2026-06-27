@@ -1,59 +1,61 @@
 {
-  "version": 1,
-  "description": "Curated final-report evaluation CSV files used by the Analytics dashboard. Files not listed here remain available through the CSV inspection endpoint only.",
+  "version": 2,
+  "description": "Curated final-report evaluation CSV files used by the Analytics dashboard. Old, debug, sample, and partial CSV files remain available through the CSV inspection endpoint only.",
   "sections": {
     "model_comparison": {
       "label": "Model Quality Comparison",
-      "description": "Final report quality rows for the main retrieval models across Quora and Clinical Trials.",
+      "description": "Final baseline comparison of TF-IDF, BM25, Embedding, Hybrid Serial, and Hybrid Parallel across report datasets.",
       "files": [
-        "quora_full_tfidf.csv",
-        "quora_full_bm25.csv",
-        "quora_hybrid_serial_depth_100.csv",
-        "quora_hybrid_parallel_depth_100.csv",
-        "quora_ltr_c500.csv",
-        "clinical_trials_full_tfidf.csv",
-        "clinical_trials_bm25_baseline.csv",
-        "clinical_trials_distributed_bm25.csv",
-        "clinical_trials_biomedical_embedding.csv",
-        "clinical_trials_hybrid_parallel_biomedical.csv",
-        "clinical_trials_ltr.csv"
+        "final/final_model_comparison.csv"
+      ]
+    },
+    "before_after_features": {
+      "label": "Before/After Extra Features",
+      "description": "Final before/after analysis for query refinement, distributed BM25, biomedical retrieval, and LTR.",
+      "files": [
+        "final/final_before_after_features.csv"
       ]
     },
     "query_refinement_before_after": {
       "label": "Query Refinement Before/After",
-      "description": "BM25 baseline and refinement runs selected for before/after comparison.",
+      "description": "BM25 without PRF compared with BM25 using pseudo relevance feedback query refinement.",
       "files": [
-        "quora_full_bm25.csv",
-        "quora_bm25_refinement_depth_100.csv",
-        "clinical_trials_bm25_baseline.csv",
-        "clinical_trials_bm25_refinement_depth_100.csv",
-        "clinical_trials_bm25_refinement_improved_fd1_terms2_depth_100.csv"
+        "final/final_query_refinement_before_after.csv"
+      ]
+    },
+    "spelling_correction": {
+      "label": "Spelling Correction",
+      "description": "Clean queries, misspelled queries without correction, and misspelled queries with correction using the same qrels.",
+      "files": [
+        "final/final_spelling_correction.csv"
       ]
     },
     "runtime_comparison": {
       "label": "Runtime Comparison",
-      "description": "Selected final runs with wall time, latency, or QPS columns.",
+      "description": "Final wall time, average query latency, and throughput comparison.",
       "files": [
-        "quora_full_tfidf.csv",
-        "quora_full_bm25.csv",
-        "quora_hybrid_parallel_batch.csv",
-        "quora_ltr_c500.csv",
-        "clinical_trials_bm25_baseline.csv",
-        "clinical_trials_distributed_bm25.csv",
-        "clinical_trials_hybrid_parallel_batch.csv",
-        "clinical_trials_ltr.csv"
+        "final/final_runtime_comparison.csv"
       ]
     },
     "extra_features": {
       "label": "Extra Features",
-      "description": "Evaluation rows for extra IR features integrated into the system UI.",
+      "description": "Integrated extra-feature rows used to analyze quality or speed contribution beyond baseline retrieval.",
       "files": [
-        "clinical_trials_distributed_bm25.csv",
-        "clinical_trials_biomedical_embedding.csv",
-        "clinical_trials_hybrid_parallel_biomedical.csv",
-        "clinical_trials_ltr.csv",
-        "quora_ltr_c500.csv",
-        "quora_hybrid_parallel_batch.csv"
+        "final/final_extra_features.csv"
+      ]
+    },
+    "clustering_evaluation": {
+      "label": "Clustering Evaluation",
+      "description": "Intrinsic clustering summary from existing clustering artifacts.",
+      "files": [
+        "final/final_clustering_evaluation.csv"
+      ]
+    },
+    "topic_detection_evaluation": {
+      "label": "Topic Detection Evaluation",
+      "description": "Topic frequency, representative terms, diversity, and examples from topic detection artifacts.",
+      "files": [
+        "final/final_topic_detection_evaluation.csv"
       ]
     }
   }

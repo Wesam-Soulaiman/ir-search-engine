@@ -23,10 +23,24 @@ SECTION_DEFINITIONS = {
             "Report-ready model quality rows selected by the manifest."
         ),
     },
+    "before_after_features": {
+        "label": "Before/After Extra Features",
+        "description": (
+            "Final report rows comparing baseline retrieval with integrated "
+            "extra features."
+        ),
+    },
     "query_refinement_before_after": {
         "label": "Query Refinement Before/After",
         "description": (
             "Rows selected for before/after query refinement comparison."
+        ),
+    },
+    "spelling_correction": {
+        "label": "Spelling Correction",
+        "description": (
+            "Clean, misspelled, and corrected-query runs selected for "
+            "spelling correction analysis."
         ),
     },
     "runtime_comparison": {
@@ -40,6 +54,20 @@ SECTION_DEFINITIONS = {
         "description": (
             "Rows selected for integrated extra IR features such as LTR, "
             "distributed BM25, biomedical retrieval, and batch hybrid runs."
+        ),
+    },
+    "clustering_evaluation": {
+        "label": "Clustering Evaluation",
+        "description": (
+            "Intrinsic clustering summary rows and representative cluster "
+            "examples selected for the final report."
+        ),
+    },
+    "topic_detection_evaluation": {
+        "label": "Topic Detection Evaluation",
+        "description": (
+            "Topic frequency, representative terms, and intrinsic topic "
+            "summary rows selected for the final report."
         ),
     },
 }
@@ -354,6 +382,17 @@ def _infer_comparison_phase(
     source_file: str,
     scenario: str,
 ) -> str | None:
+    explicit_phase = _get_value(
+        row,
+        [
+            "comparison_phase",
+            "phase",
+        ],
+    )
+
+    if explicit_phase:
+        return str(explicit_phase).strip()
+
     refinement_value = _get_value(
         row,
         [
@@ -375,12 +414,21 @@ def _infer_comparison_phase(
         "bm25_baseline",
         "tfidf_baseline",
         "baseline",
+        "clean_queries",
+        "misspelled_without_correction",
+        "central_bm25",
+        "best_non_ltr_baseline",
     }:
         return "before"
 
     if scenario in {
         "after_refinement",
         "after_refinement_improved",
+        "misspelled_with_correction",
+        "distributed_bm25",
+        "biomedical_embedding",
+        "hybrid_parallel_biomedical",
+        "learning_to_rank",
     }:
         return "after"
 
@@ -499,13 +547,28 @@ def _normalize_evaluation_row(
         scenario=scenario,
     )
     dataset = _get_value(row, ["dataset", "dataset_key"]) or ""
-    model = _get_value(row, ["model", "retrieval_model"]) or ""
+    model = (
+        _get_value(
+            row,
+            [
+                "model",
+                "retrieval_model",
+                "model_used",
+                "method",
+            ],
+        )
+        or ""
+    )
 
     return {
         "dataset": str(dataset).strip(),
         "model": str(model).strip(),
         "scenario": scenario,
         "run_name": str(_get_value(row, ["run_name"]) or source_path.stem),
+        "feature_group": str(
+            _get_value(row, ["feature_group", "feature"]) or ""
+        ),
+        "status": str(_get_value(row, ["status"]) or ""),
         "source_file": source_file,
         "source_csv": source_csv,
         "section_key": section_key,
@@ -570,9 +633,13 @@ def _empty_dashboard(
         "row_count": 0,
         "rows": [],
         "quality_rows": [],
+        "before_after_feature_rows": [],
         "before_after_rows": [],
+        "spelling_correction_rows": [],
         "speed_rows": [],
         "extra_feature_rows": [],
+        "clustering_evaluation_rows": [],
+        "topic_detection_evaluation_rows": [],
         "errors": [],
     }
 
@@ -593,7 +660,7 @@ def list_evaluation_csv_files(
             "file_count": 0,
         }
 
-    csv_files = sorted(evaluation_dir.glob("*.csv"))
+    csv_files = sorted(evaluation_dir.rglob("*.csv"))
 
     files = [
         _inspect_csv_file(
@@ -726,10 +793,22 @@ def load_evaluation_dashboard(
         "row_count": len(rows),
         "rows": rows,
         "quality_rows": ordered_sections["model_comparison"]["rows"],
+        "before_after_feature_rows": (
+            ordered_sections["before_after_features"]["rows"]
+        ),
         "before_after_rows": (
             ordered_sections["query_refinement_before_after"]["rows"]
         ),
+        "spelling_correction_rows": (
+            ordered_sections["spelling_correction"]["rows"]
+        ),
         "speed_rows": ordered_sections["runtime_comparison"]["rows"],
         "extra_feature_rows": ordered_sections["extra_features"]["rows"],
+        "clustering_evaluation_rows": (
+            ordered_sections["clustering_evaluation"]["rows"]
+        ),
+        "topic_detection_evaluation_rows": (
+            ordered_sections["topic_detection_evaluation"]["rows"]
+        ),
         "errors": errors,
     }

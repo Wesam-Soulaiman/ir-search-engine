@@ -248,20 +248,41 @@ function EvaluationCharts({
   }, []);
 
   const modelSection = getSection(dashboard, "model_comparison");
+  const beforeAfterFeatureSection = getSection(
+    dashboard,
+    "before_after_features",
+  );
   const refinementSection = getSection(
     dashboard,
     "query_refinement_before_after",
   );
+  const spellingSection = getSection(dashboard, "spelling_correction");
   const runtimeSection = getSection(dashboard, "runtime_comparison");
   const extraFeaturesSection = getSection(dashboard, "extra_features");
+  const clusteringEvaluationSection = getSection(
+    dashboard,
+    "clustering_evaluation",
+  );
+  const topicDetectionEvaluationSection = getSection(
+    dashboard,
+    "topic_detection_evaluation",
+  );
 
   const modelRows = useMemo(
     () => filterRowsForDataset(modelSection, dataset),
     [modelSection, dataset],
   );
+  const beforeAfterFeatureRows = useMemo(
+    () => filterRowsForDataset(beforeAfterFeatureSection, dataset),
+    [beforeAfterFeatureSection, dataset],
+  );
   const refinementRows = useMemo(
     () => filterRowsForDataset(refinementSection, dataset),
     [refinementSection, dataset],
+  );
+  const spellingRows = useMemo(
+    () => filterRowsForDataset(spellingSection, dataset),
+    [spellingSection, dataset],
   );
   const runtimeRows = useMemo(
     () => filterRowsForDataset(runtimeSection, dataset),
@@ -270,6 +291,14 @@ function EvaluationCharts({
   const extraFeatureRows = useMemo(
     () => filterRowsForDataset(extraFeaturesSection, dataset),
     [extraFeaturesSection, dataset],
+  );
+  const clusteringEvaluationRows = useMemo(
+    () => filterRowsForDataset(clusteringEvaluationSection, dataset),
+    [clusteringEvaluationSection, dataset],
+  );
+  const topicDetectionEvaluationRows = useMemo(
+    () => filterRowsForDataset(topicDetectionEvaluationSection, dataset),
+    [topicDetectionEvaluationSection, dataset],
   );
 
   const availableSpeedMetrics = useMemo(
@@ -305,6 +334,22 @@ function EvaluationCharts({
     nDCG: toMetric(row.ndcg),
   }));
 
+  const beforeAfterFeatureChartData = beforeAfterFeatureRows.map((row) => ({
+    name: `${formatScenario(row.feature_group || row.section_key)} ${formatScenario(row.scenario)}`,
+    MAP: toMetric(row.map),
+    "Precision@10": toMetric(row.precision_at_10),
+    Recall: toMetric(row.recall),
+    nDCG: toMetric(row.ndcg),
+  }));
+
+  const spellingChartData = spellingRows.map((row) => ({
+    name: formatScenario(row.scenario),
+    MAP: toMetric(row.map),
+    "Precision@10": toMetric(row.precision_at_10),
+    Recall: toMetric(row.recall),
+    nDCG: toMetric(row.ndcg),
+  }));
+
   const speedChartData = runtimeRows
     .filter((row) => hasNumber(row, selectedSpeedMetric.key))
     .map((row) => ({
@@ -314,7 +359,9 @@ function EvaluationCharts({
 
   const selectedRows = [
     ...modelRows,
+    ...beforeAfterFeatureRows,
     ...refinementRows,
+    ...spellingRows,
     ...runtimeRows,
     ...extraFeatureRows,
   ];
@@ -368,8 +415,14 @@ function EvaluationCharts({
 
       {dashboard.errors?.length ? (
         <div className="analytics-empty danger">
-          {dashboard.errors.length} manifest issue(s) were found. Check
-          report_manifest.json and the Available CSV Files panel.
+          <strong>{dashboard.errors.length} manifest issue(s) were found.</strong>
+          <ul>
+            {dashboard.errors.slice(0, 5).map((error, index) => (
+              <li key={`${error.section}-${error.source_csv}-${index}`}>
+                {formatScenario(error.section)}: {error.source_csv} - {error.error}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
@@ -409,6 +462,21 @@ function EvaluationCharts({
             emptyMessage="No manifest-selected model comparison rows are available for this dataset."
           />
         </ChartCard>
+      </div>
+
+      <div className="analytics-grid">
+        <ChartCard
+          title={beforeAfterFeatureSection.label || "Before/After Extra Features"}
+          subtitle={beforeAfterFeatureSection.description}
+        >
+          <SourceCsvList sources={beforeAfterFeatureSection.sources} />
+          <MetricBarChart
+            data={beforeAfterFeatureChartData}
+            bars={QUALITY_BARS}
+            yDomain={[0, 1]}
+            emptyMessage="No final before/after feature rows are available for this dataset."
+          />
+        </ChartCard>
 
         <ChartCard
           title={refinementSection.label || "Query Refinement Before/After"}
@@ -423,6 +491,19 @@ function EvaluationCharts({
           />
         </ChartCard>
       </div>
+
+      <ChartCard
+        title={spellingSection.label || "Spelling Correction"}
+        subtitle={spellingSection.description}
+      >
+        <SourceCsvList sources={spellingSection.sources} />
+        <MetricBarChart
+          data={spellingChartData}
+          bars={QUALITY_BARS}
+          yDomain={[0, 1]}
+          emptyMessage="No final spelling-correction rows are available for this dataset."
+        />
+      </ChartCard>
 
       <ChartCard
         title={runtimeSection.label || "Runtime Comparison"}
@@ -466,6 +547,49 @@ function EvaluationCharts({
         <EvaluationRowsTable rows={extraFeatureRows} showSection={false} />
       </ChartCard>
 
+      <div className="analytics-grid">
+        <ChartCard
+          title={clusteringEvaluationSection.label || "Clustering Evaluation"}
+          subtitle={clusteringEvaluationSection.description}
+        >
+          <SourceCsvList sources={clusteringEvaluationSection.sources} />
+          <ArtifactRowsTable
+            rows={clusteringEvaluationRows}
+            columns={[
+              ["cluster_id", "Cluster"],
+              ["cluster_size", "Size"],
+              ["number_of_clusters", "Clusters"],
+              ["top_terms", "Top Terms"],
+              ["example_doc_ids", "Examples"],
+              ["silhouette_score", "Silhouette"],
+            ]}
+            emptyMessage="No final clustering evaluation rows are available for this dataset."
+          />
+        </ChartCard>
+
+        <ChartCard
+          title={
+            topicDetectionEvaluationSection.label
+              || "Topic Detection Evaluation"
+          }
+          subtitle={topicDetectionEvaluationSection.description}
+        >
+          <SourceCsvList sources={topicDetectionEvaluationSection.sources} />
+          <ArtifactRowsTable
+            rows={topicDetectionEvaluationRows}
+            columns={[
+              ["topic_id", "Topic"],
+              ["topic_size", "Frequency"],
+              ["top_terms", "Top Terms"],
+              ["topic_diversity", "Diversity"],
+              ["topic_coherence", "Coherence"],
+              ["example_doc_ids", "Examples"],
+            ]}
+            emptyMessage="No final topic detection evaluation rows are available for this dataset."
+          />
+        </ChartCard>
+      </div>
+
       <ChartCard
         title="Evaluation Table"
         subtitle="Only rows selected by report_manifest.json are shown here"
@@ -477,6 +601,49 @@ function EvaluationCharts({
         inventory={fileInventory}
         errorMessage={filesErrorMessage}
       />
+    </div>
+  );
+}
+
+function getRawValue(row, key) {
+  return row?.raw?.[key] ?? row?.[key] ?? "";
+}
+
+function ArtifactRowsTable({
+  rows,
+  columns,
+  emptyMessage,
+}) {
+  if (!rows.length) {
+    return (
+      <div className="analytics-empty">
+        {emptyMessage}
+      </div>
+    );
+  }
+
+  return (
+    <div className="analytics-table-wrap">
+      <table className="analytics-table">
+        <thead>
+          <tr>
+            {columns.map(([key, label]) => (
+              <th key={key}>{label}</th>
+            ))}
+            <th>Source CSV</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={`${row.source_csv}-${row.scenario}-${index}`}>
+              {columns.map(([key]) => (
+                <td key={key}>{getRawValue(row, key) || "N/A"}</td>
+              ))}
+              <td>{row.source_csv}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

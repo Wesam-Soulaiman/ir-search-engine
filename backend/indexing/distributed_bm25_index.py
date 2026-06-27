@@ -297,6 +297,7 @@ class DistributedBm25ShardIndexBuilder(
         max_df: float = 0.98,
         max_features: int | None = None,
         epsilon: float = 0.25,
+        checkpoint_every_docs: int = 1000,
     ):
         self.shard_id = int(shard_id)
         self.num_shards = validate_num_shards(
@@ -328,6 +329,7 @@ class DistributedBm25ShardIndexBuilder(
             max_df=max_df,
             max_features=max_features,
             epsilon=epsilon,
+            checkpoint_every_docs=checkpoint_every_docs,
         )
 
         self.index_dir = (
@@ -548,6 +550,7 @@ class DistributedBm25IndexBuilder:
         max_features: int | None = None,
         epsilon: float = 0.25,
         rrf_k: int = DEFAULT_DISTRIBUTED_RRF_K,
+        checkpoint_every_docs: int = 1000,
     ):
         self.repository = repository
         self.dataset_key = str(
@@ -569,6 +572,9 @@ class DistributedBm25IndexBuilder:
         )
         self.epsilon = float(epsilon)
         self.rrf_k = int(rrf_k)
+        self.checkpoint_every_docs = int(
+            checkpoint_every_docs
+        )
 
         self._validate_parameters()
 
@@ -630,9 +636,15 @@ class DistributedBm25IndexBuilder:
                 "rrf_k must be greater than zero."
             )
 
+        if self.checkpoint_every_docs <= 0:
+            raise ValueError(
+                "checkpoint_every_docs must be greater than zero."
+            )
+
     def build(
         self,
         force: bool = False,
+        clean: bool = False,
     ) -> Dict[str, Any]:
         self.repository.initialize()
 
@@ -670,10 +682,13 @@ class DistributedBm25IndexBuilder:
             )
 
         if self.index_dir.exists():
-            if not force:
+            if not (force or clean):
                 raise DistributedBm25BuildError(
-                    "A distributed BM25 index already exists. "
-                    "Use --force to rebuild it."
+                    "A distributed BM25 index or incomplete build "
+                    "already exists. Use --clean to remove the "
+                    "distributed_bm25 directory and rebuild from "
+                    "scratch, or --force to overwrite an existing "
+                    "completed index."
                 )
 
             shutil.rmtree(
@@ -769,6 +784,9 @@ class DistributedBm25IndexBuilder:
                     max_df=self.max_df,
                     max_features=self.max_features,
                     epsilon=self.epsilon,
+                    checkpoint_every_docs=(
+                        self.checkpoint_every_docs
+                    ),
                 )
             )
 

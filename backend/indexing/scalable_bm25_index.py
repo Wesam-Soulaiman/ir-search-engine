@@ -1,9 +1,12 @@
 import gc
 import json
 import math
+import os
 import shutil
 import sqlite3
+import threading
 import time
+import uuid
 from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,6 +17,10 @@ import numpy as np
 
 from document_store.repository import DocumentStoreRepository
 from preprocessing.preprocessing_service import TextPreprocessor
+
+
+_ATOMIC_JSON_LOCKS: Dict[str, threading.Lock] = {}
+_ATOMIC_JSON_LOCKS_GUARD = threading.Lock()
 
 
 class ScalableBm25BuildError(RuntimeError):
@@ -67,6 +74,7 @@ class ScalableBm25IndexBuilder:
         max_df: float = 0.98,
         max_features: Optional[int] = None,
         epsilon: float = 0.25,
+        checkpoint_every_docs: int = 1000,
     ):
         self.repository = repository
         self.dataset_key = str(dataset_key).strip()
@@ -81,6 +89,9 @@ class ScalableBm25IndexBuilder:
             else None
         )
         self.epsilon = float(epsilon)
+        self.checkpoint_every_docs = int(
+            checkpoint_every_docs
+        )
 
         self._validate_parameters()
 
@@ -162,6 +173,11 @@ class ScalableBm25IndexBuilder:
         if self.epsilon < 0.0:
             raise ValueError(
                 "epsilon must be greater than or equal to zero."
+            )
+
+        if self.checkpoint_every_docs <= 0:
+            raise ValueError(
+                "checkpoint_every_docs must be greater than zero."
             )
 
     def build(
@@ -368,26 +384,9 @@ class ScalableBm25IndexBuilder:
         self,
         checkpoint: Dict[str, Any],
     ):
-        self.work_dir.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        temporary_path = (
-            self.checkpoint_path.with_suffix(".tmp")
-        )
-
-        temporary_path.write_text(
-            json.dumps(
-                checkpoint,
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-
-        temporary_path.replace(
-            self.checkpoint_path
+        self._write_json_atomic(
+            self.checkpoint_path,
+            checkpoint,
         )
 
     @contextmanager
@@ -656,6 +655,9 @@ class ScalableBm25IndexBuilder:
         print("=" * 70)
 
         self._initialize_statistics_database()
+        last_checkpoint_documents = int(
+            state["processed_documents"]
+        )
 
         for rows in self._iter_document_rows(
             after_rowid=state["last_rowid"]
@@ -773,7 +775,17 @@ class ScalableBm25IndexBuilder:
                 statistics_row["last_rowid"]
             )
 
-            self._save_checkpoint(checkpoint)
+            if (
+                state["processed_documents"]
+                - last_checkpoint_documents
+                >= self.checkpoint_every_docs
+                or state["processed_documents"]
+                >= self.document_count
+            ):
+                self._save_checkpoint(checkpoint)
+                last_checkpoint_documents = int(
+                    state["processed_documents"]
+                )
 
             print(
                 "Statistics documents: "
@@ -1061,6 +1073,9 @@ class ScalableBm25IndexBuilder:
         self._initialize_postings_database()
 
         state = checkpoint["postings"]
+        last_checkpoint_documents = int(
+            state["processed_documents"]
+        )
 
         print()
         print("=" * 70)
@@ -1210,7 +1225,17 @@ class ScalableBm25IndexBuilder:
                 posting_rows
             )
 
-            self._save_checkpoint(checkpoint)
+            if (
+                state["processed_documents"]
+                - last_checkpoint_documents
+                >= self.checkpoint_every_docs
+                or state["processed_documents"]
+                >= self.document_count
+            ):
+                self._save_checkpoint(checkpoint)
+                last_checkpoint_documents = int(
+                    state["processed_documents"]
+                )
 
             print(
                 "Postings documents: "
@@ -1541,27 +1566,133 @@ class ScalableBm25IndexBuilder:
                 )
 
     @staticmethod
+    def _get_atomic_json_lock(
+        output_path: Path,
+    ) -> threading.Lock:
+        lock_key = str(
+            Path(output_path).expanduser().resolve()
+        )
+
+        with _ATOMIC_JSON_LOCKS_GUARD:
+            lock = _ATOMIC_JSON_LOCKS.get(
+                lock_key
+            )
+
+            if lock is None:
+                lock = threading.Lock()
+                _ATOMIC_JSON_LOCKS[lock_key] = lock
+
+            return lock
+
+    @staticmethod
+    def _retryable_replace_error(
+        error: OSError,
+    ) -> bool:
+        return (
+            isinstance(error, PermissionError)
+            or getattr(error, "winerror", None) == 5
+        )
+
+    @staticmethod
+    def _unique_json_temp_path(
+        output_path: Path,
+    ) -> Path:
+        return output_path.with_name(
+            f"{output_path.name}."
+            f"{os.getpid()}."
+            f"{threading.get_ident()}."
+            f"{uuid.uuid4().hex}.tmp"
+        )
+
+    @staticmethod
     def _write_json_atomic(
         output_path: Path,
         value: Dict[str, Any],
+        attempts: int = 12,
+        initial_delay_seconds: float = 0.05,
     ):
+        output_path = Path(
+            output_path
+        ).expanduser().resolve()
         output_path.parent.mkdir(
             parents=True,
             exist_ok=True,
         )
 
-        temporary_path = output_path.with_suffix(
-            ".tmp"
+        temporary_path = (
+            ScalableBm25IndexBuilder
+            ._unique_json_temp_path(output_path)
         )
-        temporary_path.write_text(
-            json.dumps(
-                value,
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
+
+        try:
+            with temporary_path.open(
+                "w",
+                encoding="utf-8",
+            ) as file:
+                json.dump(
+                    value,
+                    file,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                file.write("\n")
+                file.flush()
+                os.fsync(file.fileno())
+
+            lock = (
+                ScalableBm25IndexBuilder
+                ._get_atomic_json_lock(output_path)
+            )
+            last_error: Optional[OSError] = None
+            delay_seconds = float(
+                initial_delay_seconds
+            )
+
+            with lock:
+                for attempt in range(
+                    max(1, int(attempts))
+                ):
+                    try:
+                        os.replace(
+                            str(temporary_path),
+                            str(output_path),
+                        )
+                        return
+
+                    except OSError as error:
+                        last_error = error
+
+                        if (
+                            not ScalableBm25IndexBuilder
+                            ._retryable_replace_error(error)
+                            or attempt + 1 >= attempts
+                        ):
+                            break
+
+                        time.sleep(
+                            delay_seconds
+                        )
+                        delay_seconds = min(
+                            delay_seconds * 2.0,
+                            2.0,
+                        )
+
+        finally:
+            try:
+                temporary_path.unlink(
+                    missing_ok=True,
+                )
+            except OSError:
+                pass
+
+        raise ScalableBm25BuildError(
+            "Could not atomically write BM25 JSON file after "
+            f"{attempts} attempt(s): {output_path}. "
+            "Windows may still have a transient lock on the index "
+            "directory from antivirus, indexing, Explorer preview, "
+            "or another process. "
+            f"Last error: {last_error}"
         )
-        temporary_path.replace(output_path)
 
     @staticmethod
     def _write_numpy_atomic(

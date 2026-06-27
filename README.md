@@ -113,6 +113,78 @@ Charts are implemented with **Recharts** in the React frontend, not manual CSS b
 
 ---
 
+## Final Evaluation Protocol
+
+Final report charts use only curated CSV files selected by `reports/evaluation/report_manifest.json`. The manifest points to report-ready outputs under:
+
+```text
+reports/evaluation/final/
+```
+
+Old, debug, sample, and partial CSV files in `reports/evaluation` are not loaded into final charts by default. They remain available only through the inspection endpoint:
+
+```text
+GET /api/analytics/evaluation/files/
+```
+
+The final evaluation runner is:
+
+```text
+backend/scripts/run_final_evaluation_suite.py
+```
+
+Recommended final command:
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe scripts\run_final_evaluation_suite.py --datasets quora clinical_trials --retrieval-depth 1000 --candidate-count 1000 --query-batch-size 64 --output-dir reports/evaluation/final --suite all
+```
+
+The final protocol evaluates Quora and Clinical Trials using the standard IR metrics required for the report:
+
+* MAP at retrieval depth
+* Precision@10
+* Recall at retrieval depth
+* nDCG@10
+* Evaluation wall time
+* Average query time
+* Queries per second
+
+Baseline representation comparison evaluates:
+
+* TF-IDF
+* BM25
+* Dense Embedding
+* Hybrid Serial
+* Hybrid Parallel
+
+The before/after feature evaluation compares:
+
+* BM25 before and after pseudo relevance feedback query refinement
+* Clean queries, misspelled queries without correction, and misspelled queries with spelling correction
+* Central BM25 and Distributed BM25
+* Clinical Trials BM25, biomedical embedding retrieval, biomedical hybrid retrieval, and biomedical LTR where available
+* Best measured non-LTR baseline and LTR where a trained LTR model artifact exists
+
+Final runner outputs:
+
+```text
+reports/evaluation/final/final_model_comparison.csv
+reports/evaluation/final/final_before_after_features.csv
+reports/evaluation/final/final_query_refinement_before_after.csv
+reports/evaluation/final/final_spelling_correction.csv
+reports/evaluation/final/final_runtime_comparison.csv
+reports/evaluation/final/final_extra_features.csv
+reports/evaluation/final/final_clustering_evaluation.csv
+reports/evaluation/final/final_topic_detection_evaluation.csv
+```
+
+RAG is evaluated qualitatively because the generated answer quality depends on retrieved context, answer synthesis, and citation usefulness. Retrieval models are evaluated quantitatively with MAP, Precision@10, Recall, and nDCG because qrels define document-level relevance.
+
+Clustering and topic detection are not ranked retrieval tasks, so MAP and nDCG are not appropriate. They are evaluated with intrinsic and visual evidence: cluster sizes, representative terms, example documents, topic frequency, topic diversity, and optional intrinsic scores when those artifacts are available.
+
+---
+
 ## Latest Evaluation Results
 
 ### Quora

@@ -131,6 +131,15 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--clean",
+        action="store_true",
+        help=(
+            "Remove the existing distributed_bm25 directory before "
+            "building. Use this after an interrupted or incomplete build."
+        ),
+    )
+
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=1000,
@@ -183,6 +192,17 @@ def parse_args():
         ),
     )
 
+    parser.add_argument(
+        "--checkpoint-every-docs",
+        type=int,
+        default=5000,
+        help=(
+            "Save shard checkpoints after this many newly processed "
+            "documents. Larger values reduce Windows filesystem churn. "
+            "Default: 5000."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -205,6 +225,9 @@ def main():
             max_features=args.max_features,
             epsilon=args.epsilon,
             rrf_k=args.rrf_k,
+            checkpoint_every_docs=(
+                args.checkpoint_every_docs
+            ),
         )
 
         print("=" * 70)
@@ -231,11 +254,17 @@ def main():
         )
         print(f"epsilon: {args.epsilon}")
         print(f"rrf_k: {args.rrf_k}")
+        print(
+            "Checkpoint every docs: "
+            f"{args.checkpoint_every_docs:,}"
+        )
         print(f"Force rebuild: {args.force}")
+        print(f"Clean rebuild: {args.clean}")
         print("=" * 70)
 
         summary = builder.build(
-            force=args.force
+            force=args.force,
+            clean=args.clean,
         )
 
         print()
@@ -256,7 +285,8 @@ def main():
         print()
         print(
             "Distributed BM25 build interrupted. "
-            "Rerun with --force to rebuild from scratch."
+            "Rerun with --clean to remove the incomplete "
+            "distributed_bm25 directory and rebuild from scratch."
         )
         sys.exit(130)
 

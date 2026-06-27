@@ -52,6 +52,10 @@ from indexing.distributed_bm25_index import (
     assign_shard,
     validate_num_shards,
 )
+from indexing.scalable_bm25_index import (
+    ScalableBm25BuildError,
+    ScalableBm25IndexBuilder,
+)
 from retrieval.distributed_bm25_service import (
     DistributedBM25RetrievalService,
 )
@@ -59,6 +63,7 @@ from retrieval.ltr_feature_extractor import (
     LTRFeatureExtractor,
     build_ltr_labels,
     merge_ltr_candidate_results,
+    normalize_ltr_candidate_models,
 )
 from retrieval.ltr_service import (
     LTRModelNotTrainedError,
@@ -3730,6 +3735,143 @@ class EvaluationCsvDashboardTests(SimpleTestCase):
             },
         )
 
+    def test_final_manifest_loads_nested_csvs_and_warns_for_missing_files(self):
+        from retrieval.evaluation_csv_service import (
+            load_evaluation_dashboard,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            reports_root = Path(directory) / "reports"
+            evaluation_dir = reports_root / "evaluation"
+            final_dir = evaluation_dir / "final"
+            final_dir.mkdir(parents=True)
+
+            (
+                evaluation_dir
+                / "old_debug_run.csv"
+            ).write_text(
+                (
+                    "dataset,model,MAP,Precision@10,Recall,nDCG\n"
+                    "sample_dataset,embedding,0.9,0.9,0.9,0.9\n"
+                ),
+                encoding="utf-8",
+            )
+            (
+                final_dir
+                / "final_model_comparison.csv"
+            ).write_text(
+                (
+                    "dataset,model,scenario,feature_group,MAP,"
+                    "Precision@10,Recall,nDCG,EvaluationWallTimeSeconds\n"
+                    "sample_dataset,bm25,bm25_baseline,baseline,"
+                    "0.2,0.4,0.6,0.5,1.25\n"
+                ),
+                encoding="utf-8",
+            )
+            (
+                evaluation_dir
+                / "report_manifest.json"
+            ).write_text(
+                json.dumps({
+                    "sections": {
+                        "model_comparison": {
+                            "files": [
+                                "final/final_model_comparison.csv",
+                            ],
+                        },
+                        "runtime_comparison": {
+                            "files": [
+                                "final/missing_runtime.csv",
+                            ],
+                        },
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            dashboard = load_evaluation_dashboard(
+                reports_root=reports_root,
+            )
+
+        self.assertTrue(dashboard["manifest_found"])
+        self.assertEqual(dashboard["file_count"], 1)
+        self.assertEqual(dashboard["row_count"], 1)
+        self.assertFalse(
+            any(
+                row["model"] == "embedding"
+                for row in dashboard["rows"]
+            )
+        )
+
+        row = dashboard["rows"][0]
+
+        self.assertEqual(row["source_csv"], "evaluation/final/final_model_comparison.csv")
+        self.assertEqual(row["feature_group"], "baseline")
+        self.assertEqual(row["map"], 0.2)
+        self.assertEqual(row["precision_at_10"], 0.4)
+        self.assertEqual(row["recall"], 0.6)
+        self.assertEqual(row["ndcg"], 0.5)
+
+        self.assertEqual(len(dashboard["errors"]), 1)
+        self.assertIn(
+            "final/missing_runtime.csv",
+            dashboard["errors"][0]["source_csv"],
+        )
+
+    def test_final_csv_normalizes_cutoff_metric_columns(self):
+        from retrieval.evaluation_csv_service import (
+            load_evaluation_dashboard,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            reports_root = Path(directory) / "reports"
+            evaluation_dir = reports_root / "evaluation"
+            final_dir = evaluation_dir / "final"
+            final_dir.mkdir(parents=True)
+
+            (
+                final_dir
+                / "final_cutoff_metrics.csv"
+            ).write_text(
+                (
+                    "dataset,model,run_name,MAP@1000,Precision@10,"
+                    "Recall@1000,nDCG@10,AverageQueryTimeMs,"
+                    "QueriesPerSecond\n"
+                    "sample_dataset,tfidf,tfidf_final,0.11,0.22,"
+                    "0.33,0.44,12.5,80\n"
+                ),
+                encoding="utf-8",
+            )
+            (
+                evaluation_dir
+                / "report_manifest.json"
+            ).write_text(
+                json.dumps({
+                    "sections": {
+                        "model_comparison": {
+                            "files": [
+                                "final/final_cutoff_metrics.csv",
+                            ],
+                        },
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            dashboard = load_evaluation_dashboard(
+                reports_root=reports_root,
+            )
+
+        row = dashboard["rows"][0]
+
+        self.assertEqual(row["map"], 0.11)
+        self.assertEqual(row["precision_at_10"], 0.22)
+        self.assertEqual(row["recall"], 0.33)
+        self.assertEqual(row["ndcg"], 0.44)
+        self.assertEqual(row["average_latency_ms"], 12.5)
+        self.assertEqual(row["qps"], 80.0)
+        self.assertEqual(row["source_csv"], "evaluation/final/final_cutoff_metrics.csv")
+
     def test_lists_available_csv_files_for_inspection(self):
         from retrieval.evaluation_csv_service import (
             list_evaluation_csv_files,
@@ -3751,19 +3893,336 @@ class EvaluationCsvDashboardTests(SimpleTestCase):
                 ),
                 encoding="utf-8",
             )
+            final_dir = evaluation_dir / "final"
+            final_dir.mkdir()
+            (
+                final_dir
+                / "final_file.csv"
+            ).write_text(
+                (
+                    "dataset,model,MAP\n"
+                    "sample_dataset,bm25,0.2\n"
+                ),
+                encoding="utf-8",
+            )
 
             inventory = list_evaluation_csv_files(
                 reports_root=reports_root,
             )
 
-        self.assertEqual(inventory["file_count"], 1)
-        self.assertEqual(inventory["files"][0]["name"], "sample_file.csv")
-        self.assertEqual(inventory["files"][0]["row_count"], 2)
+        self.assertEqual(inventory["file_count"], 2)
+        files_by_path = {
+            file["relative_path"]: file
+            for file in inventory["files"]
+        }
         self.assertEqual(
-            inventory["files"][0]["detected_columns"],
+            files_by_path["evaluation/sample_file.csv"]["row_count"],
+            2,
+        )
+        self.assertEqual(
+            files_by_path["evaluation/final/final_file.csv"]["row_count"],
+            1,
+        )
+        self.assertEqual(
+            files_by_path["evaluation/sample_file.csv"]["detected_columns"],
             [
                 "dataset",
                 "model",
                 "MAP",
             ],
+        )
+
+
+class FinalEvaluationSuiteTests(SimpleTestCase):
+    def _suite_args(self, ltr_model_path: Path):
+        return SimpleNamespace(
+            retrieval_depth=10,
+            precision_k=10,
+            ndcg_k=10,
+            candidate_count=10,
+            query_batch_size=1,
+            bm25_k1=1.5,
+            bm25_b=0.75,
+            rrf_k=60,
+            num_shards=4,
+            shard_top_k=None,
+            feedback_docs=3,
+            expansion_terms=5,
+            biomedical_weight=1.0,
+            ltr_model_path=str(ltr_model_path),
+        )
+
+    def test_ltr_biomedical_feature_case_uses_supported_candidate_key(self):
+        from scripts import run_final_evaluation_suite as suite
+
+        with tempfile.TemporaryDirectory() as directory:
+            ltr_model_path = (
+                Path(directory)
+                / "clinical_trials_ltr.joblib"
+            )
+            ltr_model_path.write_bytes(b"model")
+            args = self._suite_args(ltr_model_path)
+
+            cases = suite.build_extra_feature_cases(
+                datasets=["clinical_trials"],
+                args=args,
+            )
+
+        ltr_case = next(
+            case
+            for case in cases
+            if case.scenario == "ltr_biomedical_features"
+        )
+
+        self.assertEqual(
+            ltr_case.ltr_candidate_models,
+            (
+                "bm25",
+                "tfidf",
+                "embedding",
+                "biomedical",
+            ),
+        )
+        self.assertNotIn(
+            "biomedical_embedding",
+            ltr_case.ltr_candidate_models,
+        )
+
+        normalized_candidates = normalize_ltr_candidate_models(
+            ltr_case.ltr_candidate_models,
+            include_biomedical=True,
+            dataset_key="clinical_trials",
+        )
+
+        self.assertIn(
+            "biomedical",
+            normalized_candidates,
+        )
+
+    @patch(
+        "scripts.run_final_evaluation_suite.run_runner_for_case"
+    )
+    def test_ltr_biomedical_feature_row_completes_when_model_exists(
+        self,
+        mocked_run_runner_for_case,
+    ):
+        from scripts import run_final_evaluation_suite as suite
+
+        with tempfile.TemporaryDirectory() as directory:
+            ltr_model_path = (
+                Path(directory)
+                / "clinical_trials_ltr.joblib"
+            )
+            ltr_model_path.write_bytes(b"model")
+            args = self._suite_args(ltr_model_path)
+            cases = suite.build_extra_feature_cases(
+                datasets=["clinical_trials"],
+                args=args,
+            )
+            ltr_case = next(
+                case
+                for case in cases
+                if case.scenario == "ltr_biomedical_features"
+            )
+
+            mocked_run_runner_for_case.return_value = {
+                "dataset": "clinical_trials",
+                "model": "ltr",
+                "MAP@10": 0.3,
+                "Precision@10": 0.4,
+                "Recall@10": 0.5,
+                "nDCG@10": 0.6,
+                "EvaluationWallTimeSeconds": 1.0,
+                "AverageQueryTimeMs": 20.0,
+                "QueriesPerSecond": 50.0,
+            }
+
+            row = suite.evaluate_case(
+                case=ltr_case,
+                args=args,
+                cache={},
+            )
+
+        self.assertEqual(
+            row["scenario"],
+            "ltr_biomedical_features",
+        )
+        self.assertEqual(
+            row["status"],
+            "completed",
+        )
+        self.assertEqual(
+            row["error"],
+            "",
+        )
+        self.assertEqual(
+            row["MAP"],
+            0.3,
+        )
+
+        called_case = (
+            mocked_run_runner_for_case
+            .call_args
+            .kwargs["case"]
+        )
+        self.assertIn(
+            "biomedical",
+            called_case.ltr_candidate_models,
+        )
+        self.assertNotIn(
+            "biomedical_embedding",
+            called_case.ltr_candidate_models,
+        )
+
+
+class Bm25WindowsSafeCheckpointTests(SimpleTestCase):
+    def test_save_checkpoint_delegates_to_atomic_writer_without_stale_temp_name(self):
+        builder = ScalableBm25IndexBuilder.__new__(
+            ScalableBm25IndexBuilder
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            builder.work_dir = Path(directory)
+            builder.checkpoint_path = (
+                Path(directory) / "checkpoint.json"
+            )
+
+            builder._save_checkpoint({
+                "stage": "statistics",
+            })
+
+            self.assertEqual(
+                json.loads(
+                    builder.checkpoint_path.read_text(
+                        encoding="utf-8",
+                    )
+                ),
+                {
+                    "stage": "statistics",
+                },
+            )
+
+    def test_atomic_json_write_retries_with_unique_temp_file(self):
+        from indexing import scalable_bm25_index as bm25_module
+
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "checkpoint.json"
+            replace_calls = []
+            real_replace = bm25_module.os.replace
+
+            def flaky_replace(source, destination):
+                replace_calls.append(
+                    (
+                        Path(source).name,
+                        Path(destination).name,
+                    )
+                )
+
+                if len(replace_calls) == 1:
+                    raise PermissionError(
+                        "[WinError 5] Access is denied"
+                    )
+
+                real_replace(
+                    source,
+                    destination,
+                )
+
+            with patch(
+                "indexing.scalable_bm25_index.os.replace",
+                side_effect=flaky_replace,
+            ):
+                ScalableBm25IndexBuilder._write_json_atomic(
+                    output_path=output_path,
+                    value={"stage": "statistics"},
+                    attempts=3,
+                    initial_delay_seconds=0,
+                )
+
+            self.assertEqual(
+                json.loads(
+                    output_path.read_text(
+                        encoding="utf-8",
+                    )
+                ),
+                {
+                    "stage": "statistics",
+                },
+            )
+            self.assertEqual(
+                len(replace_calls),
+                2,
+            )
+            self.assertTrue(
+                replace_calls[0][0].startswith(
+                    "checkpoint.json."
+                )
+            )
+            self.assertTrue(
+                replace_calls[0][0].endswith(
+                    ".tmp"
+                )
+            )
+            self.assertNotEqual(
+                replace_calls[0][0],
+                "checkpoint.tmp",
+            )
+            self.assertEqual(
+                list(Path(directory).glob("*.tmp")),
+                [],
+            )
+
+    def test_atomic_json_write_cleans_temp_file_after_retry_exhaustion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "checkpoint.json"
+
+            with patch(
+                "indexing.scalable_bm25_index.os.replace",
+                side_effect=PermissionError(
+                    "[WinError 5] Access is denied"
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    ScalableBm25BuildError,
+                    "Could not atomically write BM25 JSON file",
+                ):
+                    ScalableBm25IndexBuilder._write_json_atomic(
+                        output_path=output_path,
+                        value={"stage": "statistics"},
+                        attempts=2,
+                        initial_delay_seconds=0,
+                    )
+
+            self.assertFalse(
+                output_path.exists()
+            )
+            self.assertEqual(
+                list(Path(directory).glob("*.tmp")),
+                [],
+            )
+
+    def test_distributed_build_script_accepts_clean_and_checkpoint_interval(self):
+        from scripts import build_distributed_bm25_index
+
+        with patch(
+            "sys.argv",
+            [
+                "build_distributed_bm25_index.py",
+                "--dataset",
+                "quora",
+                "--num-shards",
+                "4",
+                "--clean",
+                "--checkpoint-every-docs",
+                "5000",
+            ],
+        ):
+            args = build_distributed_bm25_index.parse_args()
+
+        self.assertTrue(
+            args.clean,
+        )
+        self.assertEqual(
+            args.checkpoint_every_docs,
+            5000,
         )
