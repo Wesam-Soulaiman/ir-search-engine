@@ -79,6 +79,12 @@ export async function searchDocuments(form) {
     payload.rag_context_docs = Number(form.ragContextDocs);
     payload.rag_answer_sentences = Number(form.ragAnswerSentences);
     payload.include_sources = Boolean(form.includeSources);
+    payload.rag_generation_mode = form.ragGenerationMode;
+    payload.rag_llm_provider = form.ragLlmProvider;
+    payload.rag_llm_model = form.ragLlmModel;
+    payload.rag_llm_base_url = form.ragLlmBaseUrl;
+    payload.rag_llm_temperature = Number(form.ragLlmTemperature);
+    payload.rag_llm_max_tokens = Number(form.ragLlmMaxTokens);
   }
 
   const response = await axios.post(`${API_BASE_URL}/search/`, payload);

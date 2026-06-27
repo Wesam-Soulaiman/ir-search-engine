@@ -196,6 +196,9 @@ backend/
     distributed_bm25_service.py
     ltr_feature_extractor.py
     ltr_service.py
+    rag_answer_generator.py
+    rag_llm_client.py
+    rag_service.py
     personalization_service.py
     views.py
     tests.py
@@ -375,6 +378,65 @@ Example Clinical LTR request with Biomedical candidates:
   "candidate_count": 1000,
   "ltr_candidate_models": ["bm25", "tfidf", "embedding"],
   "include_biomedical": true
+}
+```
+
+---
+
+## Optional Local LLM RAG with Ollama
+
+RAG is available through `model: "rag"`.
+
+The default generation mode remains:
+
+```text
+extractive_offline
+```
+
+This mode uses deterministic offline extractive answer synthesis and does not require Ollama or any LLM server.
+
+An optional local LLM mode is also available:
+
+```text
+local_llm
+```
+
+Local LLM RAG uses a local Ollama server and the default model:
+
+```text
+llama3.2:3b
+```
+
+Setup:
+
+```powershell
+ollama pull llama3.2:3b
+ollama run llama3.2:3b
+```
+
+Local Ollama API:
+
+```text
+http://localhost:11434
+```
+
+No cloud API key is required. The project still runs without Ollama; only `model: "rag"` with `rag_generation_mode: "local_llm"` requires the local Ollama server and model to be available.
+
+Example local LLM RAG request:
+
+```json
+{
+  "dataset": "quora",
+  "model": "rag",
+  "query": "what causes nightmares",
+  "top_k": 10,
+  "rag_retriever_model": "hybrid_serial",
+  "rag_generation_mode": "local_llm",
+  "rag_llm_provider": "ollama",
+  "rag_llm_model": "llama3.2:3b",
+  "rag_llm_base_url": "http://localhost:11434",
+  "rag_llm_temperature": 0.0,
+  "rag_llm_max_tokens": 350
 }
 ```
 

@@ -1,4 +1,7 @@
-import { RAG_RETRIEVER_MODELS } from "../config/searchOptions";
+import {
+  RAG_GENERATION_MODES,
+  RAG_RETRIEVER_MODELS,
+} from "../config/searchOptions";
 
 function AdvancedPanel({
   form,
@@ -39,6 +42,10 @@ function AdvancedPanel({
 
   const ragRetrieverModels = RAG_RETRIEVER_MODELS.filter(
     (model) => !model.clinicalOnly || form.dataset === "clinical_trials",
+  );
+  const showRagLocalLlm = (
+    showRag
+    && form.ragGenerationMode === "local_llm"
   );
 
   const updateLtrCandidateModel = (modelName, enabled) => {
@@ -417,7 +424,94 @@ function AdvancedPanel({
                     )}
                   />
                 </label>
+
+                <label className="input-group">
+                  <span>Generation Mode</span>
+                  <select
+                    value={form.ragGenerationMode}
+                    onChange={(event) => onFieldChange(
+                      "ragGenerationMode",
+                      event.target.value,
+                    )}
+                  >
+                    {RAG_GENERATION_MODES.map((mode) => (
+                      <option key={mode.value} value={mode.value}>
+                        {mode.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
+
+              {showRagLocalLlm ? (
+                <div className="advanced-grid refinement-options">
+                  <label className="input-group">
+                    <span>LLM Provider</span>
+                    <select
+                      value={form.ragLlmProvider}
+                      onChange={(event) => onFieldChange(
+                        "ragLlmProvider",
+                        event.target.value,
+                      )}
+                    >
+                      <option value="ollama">Ollama</option>
+                    </select>
+                  </label>
+
+                  <label className="input-group">
+                    <span>LLM Model</span>
+                    <input
+                      type="text"
+                      value={form.ragLlmModel}
+                      onChange={(event) => onFieldChange(
+                        "ragLlmModel",
+                        event.target.value,
+                      )}
+                    />
+                  </label>
+
+                  <label className="input-group">
+                    <span>Base URL</span>
+                    <input
+                      type="text"
+                      value={form.ragLlmBaseUrl}
+                      onChange={(event) => onFieldChange(
+                        "ragLlmBaseUrl",
+                        event.target.value,
+                      )}
+                    />
+                  </label>
+
+                  <label className="input-group">
+                    <span>Temperature</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="2"
+                      step="0.1"
+                      value={form.ragLlmTemperature}
+                      onChange={(event) => onFieldChange(
+                        "ragLlmTemperature",
+                        event.target.value,
+                      )}
+                    />
+                  </label>
+
+                  <label className="input-group">
+                    <span>Max Tokens</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="4096"
+                      value={form.ragLlmMaxTokens}
+                      onChange={(event) => onFieldChange(
+                        "ragLlmMaxTokens",
+                        event.target.value,
+                      )}
+                    />
+                  </label>
+                </div>
+              ) : null}
 
               <div className="switch-grid">
                 <label className="switch-card">

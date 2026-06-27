@@ -112,6 +112,17 @@ export const RAG_RETRIEVER_MODELS = [
   },
 ];
 
+export const RAG_GENERATION_MODES = [
+  {
+    value: "extractive_offline",
+    label: "Extractive offline",
+  },
+  {
+    value: "local_llm",
+    label: "Local LLM via Ollama",
+  },
+];
+
 export const EXAMPLE_QUERIES = {
   quora: [
     "what causes nightmares",
@@ -146,6 +157,12 @@ export const DEFAULT_SEARCH_FORM = {
   ragContextDocs: 5,
   ragAnswerSentences: 4,
   includeSources: true,
+  ragGenerationMode: "extractive_offline",
+  ragLlmProvider: "ollama",
+  ragLlmModel: "llama3.2:3b",
+  ragLlmBaseUrl: "http://localhost:11434",
+  ragLlmTemperature: 0,
+  ragLlmMaxTokens: 350,
   tfidfWeight: 1.0,
   bm25Weight: 1.0,
   embeddingWeight: 1.0,

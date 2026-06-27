@@ -102,13 +102,25 @@ function SearchSummary({
           <p>
             Retriever: {info.rag_retriever_model}
             {" | "}
+            Mode: {info.rag_generation_mode || "extractive_offline"}
+            {" | "}
             Context docs: {info.rag_context_docs}
             {" | "}
             Answer sentences: {info.rag_answer_sentences}
             {" | "}
             Confidence: {info.answer_confidence}
             {" | "}
+            Local LLM: {String(Boolean(info.metadata?.local_llm_used))}
+            {" | "}
             External LLM: {String(Boolean(info.metadata?.external_llm_used))}
+            {info.rag_generation_mode === "local_llm" ? (
+              <>
+                {" | "}
+                Provider: {info.rag_llm_provider}
+                {" | "}
+                Model: {info.rag_llm_model}
+              </>
+            ) : null}
           </p>
         </div>
       ) : null}

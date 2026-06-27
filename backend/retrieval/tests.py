@@ -1,4 +1,5 @@
 import json
+import urllib.error
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -66,6 +67,13 @@ from retrieval.ltr_service import (
 from retrieval.rag_answer_generator import (
     INSUFFICIENT_CONTEXT_ANSWER,
     OfflineExtractiveRAGAnswerGenerator,
+)
+from retrieval.rag_llm_client import (
+    DEFAULT_RAG_LLM_BASE_URL,
+    DEFAULT_RAG_LLM_MODEL,
+    LocalLLMGenerationError,
+    OllamaChatClient,
+    build_ollama_chat_payload,
 )
 from retrieval.rag_service import (
     RAGRetrievalService,
@@ -1253,6 +1261,145 @@ class RAGAnswerGeneratorTests(SimpleTestCase):
         )
 
 
+class FakeOllamaResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def read(self):
+        return json.dumps(
+            self.payload
+        ).encode("utf-8")
+
+
+class RAGOllamaClientTests(SimpleTestCase):
+    def test_builds_ollama_chat_payload(self):
+        payload = build_ollama_chat_payload(
+            query="What is RAG?",
+            context_docs=[
+                {
+                    "doc_id": "D1",
+                    "title": "RAG",
+                    "snippet": (
+                        "RAG means Retrieval-Augmented Generation."
+                    ),
+                }
+            ],
+            model=DEFAULT_RAG_LLM_MODEL,
+            temperature=0.0,
+            max_tokens=350,
+        )
+
+        self.assertEqual(
+            payload["model"],
+            "llama3.2:3b",
+        )
+        self.assertFalse(
+            payload["stream"]
+        )
+        self.assertEqual(
+            payload["options"]["temperature"],
+            0.0,
+        )
+        self.assertEqual(
+            payload["options"]["num_predict"],
+            350,
+        )
+        self.assertIn(
+            "RAG always means Retrieval-Augmented Generation",
+            payload["messages"][0]["content"],
+        )
+        self.assertIn(
+            "[1] Title: RAG",
+            payload["messages"][1]["content"],
+        )
+
+    @patch(
+        "retrieval.rag_llm_client.urllib.request.urlopen"
+    )
+    def test_parses_mocked_ollama_response(
+        self,
+        mocked_urlopen,
+    ):
+        mocked_urlopen.return_value = FakeOllamaResponse({
+            "message": {
+                "role": "assistant",
+                "content": (
+                    "RAG means Retrieval-Augmented Generation [1]."
+                ),
+            }
+        })
+        client = OllamaChatClient(
+            base_url=DEFAULT_RAG_LLM_BASE_URL,
+            model=DEFAULT_RAG_LLM_MODEL,
+        )
+
+        answer = client.generate(
+            query="What is RAG?",
+            context_docs=[
+                {
+                    "title": "RAG",
+                    "snippet": (
+                        "RAG means Retrieval-Augmented Generation."
+                    ),
+                }
+            ],
+            temperature=0.0,
+            max_tokens=350,
+        )
+
+        self.assertEqual(
+            answer,
+            "RAG means Retrieval-Augmented Generation [1].",
+        )
+
+        request = mocked_urlopen.call_args.args[0]
+        self.assertEqual(
+            request.full_url,
+            "http://localhost:11434/api/chat",
+        )
+        sent_payload = json.loads(
+            request.data.decode("utf-8")
+        )
+        self.assertEqual(
+            sent_payload["model"],
+            "llama3.2:3b",
+        )
+
+    @patch(
+        "retrieval.rag_llm_client.urllib.request.urlopen"
+    )
+    def test_ollama_unavailable_has_clear_error(
+        self,
+        mocked_urlopen,
+    ):
+        mocked_urlopen.side_effect = urllib.error.URLError(
+            "connection refused"
+        )
+        client = OllamaChatClient()
+
+        with self.assertRaisesRegex(
+            LocalLLMGenerationError,
+            "Local LLM generation requires Ollama running",
+        ):
+            client.generate(
+                query="What is RAG?",
+                context_docs=[
+                    {
+                        "title": "RAG",
+                        "snippet": (
+                            "RAG means Retrieval-Augmented Generation."
+                        ),
+                    }
+                ],
+            )
+
+
 class RAGRetrievalServiceTests(SimpleTestCase):
     def test_rag_uses_selected_retriever(self):
         retriever = MagicMock(
@@ -1293,6 +1440,105 @@ class RAGRetrievalServiceTests(SimpleTestCase):
         self.assertTrue(
             response["metadata"]["rag"]
         )
+
+    def test_local_llm_metadata_uses_mocked_client(self):
+        retriever = MagicMock(
+            return_value=[
+                {
+                    "rank": 1,
+                    "doc_id": "D1",
+                    "title": "RAG",
+                    "snippet": (
+                        "RAG means Retrieval-Augmented Generation."
+                    ),
+                    "score": 0.9,
+                }
+            ]
+        )
+        llm_client = MagicMock()
+        llm_client.generate.return_value = (
+            "RAG means Retrieval-Augmented Generation [1]."
+        )
+        llm_client_factory = MagicMock(
+            return_value=llm_client
+        )
+        service = RAGRetrievalService(
+            dataset_key="sample_dataset",
+            retriever=retriever,
+            llm_client_factory=llm_client_factory,
+        )
+
+        response = service.search(
+            query="What is RAG?",
+            top_k=3,
+            retriever_model="bm25",
+            generation_mode="local_llm",
+            llm_provider="ollama",
+            llm_model="llama3.2:3b",
+            llm_base_url="http://localhost:11434",
+        )
+
+        metadata = response["metadata"]
+
+        self.assertEqual(
+            metadata["rag_generation_mode"],
+            "local_llm",
+        )
+        self.assertFalse(
+            metadata["external_llm_used"]
+        )
+        self.assertTrue(
+            metadata["local_llm_used"]
+        )
+        self.assertEqual(
+            metadata["llm_provider"],
+            "ollama",
+        )
+        self.assertEqual(
+            metadata["llm_model"],
+            "llama3.2:3b",
+        )
+        self.assertEqual(
+            response["metadata"]["answer"],
+            "RAG means Retrieval-Augmented Generation [1].",
+        )
+        llm_client.generate.assert_called_once()
+
+    def test_local_llm_skips_ollama_when_context_insufficient(self):
+        retriever = MagicMock(
+            return_value=[
+                {
+                    "rank": 1,
+                    "doc_id": "D1",
+                    "title": "Stars",
+                    "snippet": "Stars orbit distant galaxies.",
+                    "score": 0.5,
+                }
+            ]
+        )
+        llm_client_factory = MagicMock()
+        service = RAGRetrievalService(
+            dataset_key="sample_dataset",
+            retriever=retriever,
+            llm_client_factory=llm_client_factory,
+        )
+
+        response = service.search(
+            query="What is RAG?",
+            top_k=1,
+            retriever_model="bm25",
+            generation_mode="local_llm",
+        )
+
+        self.assertEqual(
+            response["metadata"]["answer"],
+            INSUFFICIENT_CONTEXT_ANSWER,
+        )
+        self.assertEqual(
+            response["metadata"]["answer_confidence"],
+            "insufficient",
+        )
+        llm_client_factory.assert_not_called()
 
 
 class LTREvaluationSupportTests(SimpleTestCase):
@@ -2796,6 +3042,143 @@ class SearchAPITests(APITestCase):
                 "rag_retriever_model"
             ],
             "bm25",
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
+    def test_rag_local_llm_request_is_accepted(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.return_value = {
+            "results": [
+                {
+                    "rank": 1,
+                    "doc_id": "DOC001",
+                    "title": "RAG",
+                    "snippet": (
+                        "RAG means Retrieval-Augmented Generation."
+                    ),
+                    "score": 0.7,
+                }
+            ],
+            "metadata": {
+                "rag": True,
+                "retriever_model": "hybrid_serial",
+                "rag_retriever_model": "hybrid_serial",
+                "rag_context_docs": 5,
+                "rag_answer_sentences": 4,
+                "include_sources": True,
+                "rag_generation_mode": "local_llm",
+                "rag_llm_provider": "ollama",
+                "rag_llm_model": "llama3.2:3b",
+                "rag_llm_base_url": "http://localhost:11434",
+                "rag_llm_temperature": 0.0,
+                "rag_llm_max_tokens": 350,
+                "answer": (
+                    "RAG means Retrieval-Augmented Generation [1]."
+                ),
+                "answer_confidence": "medium",
+                "sources": [
+                    {
+                        "source_id": 1,
+                        "doc_id": "DOC001",
+                        "title": "RAG",
+                        "snippet": (
+                            "RAG means Retrieval-Augmented Generation."
+                        ),
+                        "rank": 1,
+                        "score": 0.7,
+                    }
+                ],
+                "context_docs_used": 1,
+                "generation_mode": "local_llm",
+                "external_llm_used": False,
+                "local_llm_used": True,
+                "llm_provider": "ollama",
+                "llm_model": "llama3.2:3b",
+                "llm_base_url": "http://localhost:11434",
+            },
+        }
+
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "What is RAG?",
+                "dataset": "sample_dataset",
+                "model": "rag",
+                "rag_generation_mode": "local_llm",
+                "rag_llm_provider": "ollama",
+                "rag_llm_model": "llama3.2:3b",
+                "rag_llm_base_url": "http://localhost:11434",
+                "rag_llm_temperature": 0.0,
+                "rag_llm_max_tokens": 350,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+        self.assertEqual(
+            response.data["rag_generation_mode"],
+            "local_llm",
+        )
+        self.assertEqual(
+            response.data["rag_llm_model"],
+            "llama3.2:3b",
+        )
+        self.assertFalse(
+            response.data["metadata"][
+                "external_llm_used"
+            ]
+        )
+        self.assertTrue(
+            response.data["metadata"][
+                "local_llm_used"
+            ]
+        )
+        self.assertEqual(
+            mocked_run_search.call_args.kwargs[
+                "rag_generation_mode"
+            ],
+            "local_llm",
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
+    def test_rag_local_llm_unavailable_returns_clear_error(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.side_effect = (
+            LocalLLMGenerationError(
+                "Local LLM generation requires Ollama running at "
+                "http://localhost:11434 and model llama3.2:3b pulled."
+            )
+        )
+
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "What is RAG?",
+                "dataset": "sample_dataset",
+                "model": "rag",
+                "rag_generation_mode": "local_llm",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            503,
+        )
+        self.assertIn(
+            "Local LLM generation requires Ollama running",
+            response.data["error"],
         )
 
     def test_rag_rejects_biomedical_retriever_for_quora(self):

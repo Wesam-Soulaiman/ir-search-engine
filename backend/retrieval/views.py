@@ -55,11 +55,24 @@ from retrieval.personalization_service import (
 from retrieval.rag_service import (
     DEFAULT_RAG_ANSWER_SENTENCES,
     DEFAULT_RAG_CONTEXT_DOCS,
+    DEFAULT_RAG_GENERATION_MODE,
+    DEFAULT_RAG_LLM_BASE_URL,
+    DEFAULT_RAG_LLM_MAX_TOKENS,
+    DEFAULT_RAG_LLM_MODEL,
+    DEFAULT_RAG_LLM_PROVIDER,
+    DEFAULT_RAG_LLM_TEMPERATURE,
     DEFAULT_RAG_RETRIEVER_MODEL,
     MAX_RAG_ANSWER_SENTENCES,
     MAX_RAG_CONTEXT_DOCS,
+    MAX_RAG_LLM_MAX_TOKENS,
+    MAX_RAG_LLM_TEMPERATURE,
     RAGRetrievalService,
+    normalize_rag_generation_mode,
+    normalize_rag_llm_provider,
     normalize_rag_retriever_model,
+)
+from retrieval.rag_llm_client import (
+    LocalLLMGenerationError,
 )
 from retrieval.request_validation import (
     parse_boolean,
@@ -648,6 +661,58 @@ def parse_search_request(
         field_name="include_sources",
     )
 
+    rag_generation_mode = normalize_string_field(
+        request_data.get(
+            "rag_generation_mode",
+            DEFAULT_RAG_GENERATION_MODE,
+        ),
+        field_name="rag_generation_mode",
+    ).lower()
+
+    rag_llm_provider = normalize_string_field(
+        request_data.get(
+            "rag_llm_provider",
+            DEFAULT_RAG_LLM_PROVIDER,
+        ),
+        field_name="rag_llm_provider",
+    ).lower()
+
+    rag_llm_model = normalize_string_field(
+        request_data.get(
+            "rag_llm_model",
+            DEFAULT_RAG_LLM_MODEL,
+        ),
+        field_name="rag_llm_model",
+    )
+
+    rag_llm_base_url = normalize_string_field(
+        request_data.get(
+            "rag_llm_base_url",
+            DEFAULT_RAG_LLM_BASE_URL,
+        ),
+        field_name="rag_llm_base_url",
+    )
+
+    rag_llm_temperature = parse_float(
+        value=request_data.get(
+            "rag_llm_temperature"
+        ),
+        field_name="rag_llm_temperature",
+        default=DEFAULT_RAG_LLM_TEMPERATURE,
+        minimum=0.0,
+        maximum=MAX_RAG_LLM_TEMPERATURE,
+    )
+
+    rag_llm_max_tokens = parse_integer(
+        value=request_data.get(
+            "rag_llm_max_tokens"
+        ),
+        field_name="rag_llm_max_tokens",
+        default=DEFAULT_RAG_LLM_MAX_TOKENS,
+        minimum=1,
+        maximum=MAX_RAG_LLM_MAX_TOKENS,
+    )
+
     if (
         model == "biomedical_embedding"
         and dataset_key != "clinical_trials"
@@ -682,6 +747,16 @@ def parse_search_request(
             normalize_rag_retriever_model(
                 rag_retriever_model,
                 dataset_key=dataset_key,
+            )
+        )
+        rag_generation_mode = (
+            normalize_rag_generation_mode(
+                rag_generation_mode
+            )
+        )
+        rag_llm_provider = (
+            normalize_rag_llm_provider(
+                rag_llm_provider
             )
         )
 
@@ -889,6 +964,24 @@ def parse_search_request(
         "include_sources": (
             include_sources
         ),
+        "rag_generation_mode": (
+            rag_generation_mode
+        ),
+        "rag_llm_provider": (
+            rag_llm_provider
+        ),
+        "rag_llm_model": (
+            rag_llm_model
+        ),
+        "rag_llm_base_url": (
+            rag_llm_base_url
+        ),
+        "rag_llm_temperature": (
+            rag_llm_temperature
+        ),
+        "rag_llm_max_tokens": (
+            rag_llm_max_tokens
+        ),
         "use_query_refinement": (
             use_query_refinement
         ),
@@ -986,6 +1079,12 @@ def run_search(
     rag_context_docs: int = DEFAULT_RAG_CONTEXT_DOCS,
     rag_answer_sentences: int = DEFAULT_RAG_ANSWER_SENTENCES,
     include_sources: bool = True,
+    rag_generation_mode: str = DEFAULT_RAG_GENERATION_MODE,
+    rag_llm_provider: str = DEFAULT_RAG_LLM_PROVIDER,
+    rag_llm_model: str = DEFAULT_RAG_LLM_MODEL,
+    rag_llm_base_url: str = DEFAULT_RAG_LLM_BASE_URL,
+    rag_llm_temperature: float = DEFAULT_RAG_LLM_TEMPERATURE,
+    rag_llm_max_tokens: int = DEFAULT_RAG_LLM_MAX_TOKENS,
 ):
     if model == "rag":
         normalized_rag_retriever = (
@@ -1047,6 +1146,18 @@ def run_search(
                 rag_answer_sentences
             ),
             include_sources=include_sources,
+            generation_mode=(
+                rag_generation_mode
+            ),
+            llm_provider=rag_llm_provider,
+            llm_model=rag_llm_model,
+            llm_base_url=rag_llm_base_url,
+            llm_temperature=(
+                rag_llm_temperature
+            ),
+            llm_max_tokens=(
+                rag_llm_max_tokens
+            ),
         )
 
     if model == "tfidf":
@@ -1536,6 +1647,36 @@ def search_view(request):
                     "include_sources"
                 ]
             ),
+            rag_generation_mode=(
+                parameters[
+                    "rag_generation_mode"
+                ]
+            ),
+            rag_llm_provider=(
+                parameters[
+                    "rag_llm_provider"
+                ]
+            ),
+            rag_llm_model=(
+                parameters[
+                    "rag_llm_model"
+                ]
+            ),
+            rag_llm_base_url=(
+                parameters[
+                    "rag_llm_base_url"
+                ]
+            ),
+            rag_llm_temperature=(
+                parameters[
+                    "rag_llm_temperature"
+                ]
+            ),
+            rag_llm_max_tokens=(
+                parameters[
+                    "rag_llm_max_tokens"
+                ]
+            ),
         )
 
         model_metadata: Dict[str, Any] = {}
@@ -1862,6 +2003,27 @@ def search_view(request):
                         False,
                     )
                 ),
+                "local_llm_used": (
+                    model_metadata.get(
+                        "local_llm_used",
+                        False,
+                    )
+                ),
+                "llm_provider": (
+                    model_metadata.get(
+                        "llm_provider"
+                    )
+                ),
+                "llm_model": (
+                    model_metadata.get(
+                        "llm_model"
+                    )
+                ),
+                "llm_base_url": (
+                    model_metadata.get(
+                        "llm_base_url"
+                    )
+                ),
                 "retriever_metadata": (
                     model_metadata.get(
                         "retriever_metadata",
@@ -1898,6 +2060,54 @@ def search_view(request):
                         "include_sources",
                         parameters[
                             "include_sources"
+                        ],
+                    )
+                ),
+                "rag_generation_mode": (
+                    model_metadata.get(
+                        "rag_generation_mode",
+                        parameters[
+                            "rag_generation_mode"
+                        ],
+                    )
+                ),
+                "rag_llm_provider": (
+                    model_metadata.get(
+                        "rag_llm_provider",
+                        parameters[
+                            "rag_llm_provider"
+                        ],
+                    )
+                ),
+                "rag_llm_model": (
+                    model_metadata.get(
+                        "rag_llm_model",
+                        parameters[
+                            "rag_llm_model"
+                        ],
+                    )
+                ),
+                "rag_llm_base_url": (
+                    model_metadata.get(
+                        "rag_llm_base_url",
+                        parameters[
+                            "rag_llm_base_url"
+                        ],
+                    )
+                ),
+                "rag_llm_temperature": (
+                    model_metadata.get(
+                        "rag_llm_temperature",
+                        parameters[
+                            "rag_llm_temperature"
+                        ],
+                    )
+                ),
+                "rag_llm_max_tokens": (
+                    model_metadata.get(
+                        "rag_llm_max_tokens",
+                        parameters[
+                            "rag_llm_max_tokens"
                         ],
                     )
                 ),
@@ -1953,6 +2163,15 @@ def search_view(request):
                 "results": [],
             },
             status=404,
+        )
+
+    except LocalLLMGenerationError as error:
+        return Response(
+            {
+                "error": str(error),
+                "results": [],
+            },
+            status=503,
         )
 
     except RuntimeError as error:
