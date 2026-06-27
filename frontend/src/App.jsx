@@ -9,6 +9,7 @@ import FeatureCards from "./components/FeatureCards";
 import Hero from "./components/Hero";
 import InsightsPanel from "./components/InsightsPanel";
 import LoadingResults from "./components/LoadingResults";
+import RagChatPanel from "./components/RagChatPanel";
 import ResultsSection from "./components/ResultsSection";
 import SearchSummary from "./components/SearchSummary";
 import { DEFAULT_SEARCH_FORM } from "./config/searchOptions";
@@ -149,6 +150,13 @@ function App() {
             form={form}
             onFieldChange={updateField}
           />
+
+          {form.model === "rag" ? (
+            <RagChatPanel
+              form={form}
+              onFieldChange={updateField}
+            />
+          ) : null}
 
           <SearchSummary info={responseInfo} />
 

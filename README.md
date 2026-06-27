@@ -422,6 +422,8 @@ http://localhost:11434
 
 No cloud API key is required. The project still runs without Ollama; only `model: "rag"` with `rag_generation_mode: "local_llm"` requires the local Ollama server and model to be available.
 
+The React frontend also includes a chat-like RAG interface. Select `RAG Answer` as the retrieval model to open the RAG Chat panel, choose the retriever and generation mode, then send questions in the chat composer. The chat supports the default `extractive_offline` mode and optional local LLM generation through Ollama; `extractive_offline` remains the default.
+
 Example local LLM RAG request:
 
 ```json
