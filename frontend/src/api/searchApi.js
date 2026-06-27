@@ -74,6 +74,13 @@ export async function searchDocuments(form) {
     payload.include_biomedical = Boolean(form.includeBiomedical);
   }
 
+  if (form.model === "rag") {
+    payload.rag_retriever_model = form.ragRetrieverModel;
+    payload.rag_context_docs = Number(form.ragContextDocs);
+    payload.rag_answer_sentences = Number(form.ragAnswerSentences);
+    payload.include_sources = Boolean(form.includeSources);
+  }
+
   const response = await axios.post(`${API_BASE_URL}/search/`, payload);
   return response.data;
 }

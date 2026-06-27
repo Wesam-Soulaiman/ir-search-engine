@@ -1,3 +1,5 @@
+import { RAG_RETRIEVER_MODELS } from "../config/searchOptions";
+
 function AdvancedPanel({
   form,
   onFieldChange,
@@ -21,6 +23,10 @@ function AdvancedPanel({
     form.model === "ltr"
   );
 
+  const showRag = (
+    form.model === "rag"
+  );
+
   const showBiomedicalFusion = (
     form.dataset === "clinical_trials"
     && form.model === "hybrid_parallel"
@@ -29,6 +35,10 @@ function AdvancedPanel({
   const showLtrBiomedical = (
     form.dataset === "clinical_trials"
     && showLtr
+  );
+
+  const ragRetrieverModels = RAG_RETRIEVER_MODELS.filter(
+    (model) => !model.clinicalOnly || form.dataset === "clinical_trials",
   );
 
   const updateLtrCandidateModel = (modelName, enabled) => {
@@ -349,6 +359,81 @@ function AdvancedPanel({
                     </span>
                   </label>
                 ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {showRag ? (
+            <div className="fusion-weight-card">
+              <div className="fusion-weight-header">
+                <strong>RAG Answer</strong>
+                <small>
+                  Generate a grounded answer from retrieved documents.
+                </small>
+              </div>
+
+              <div className="advanced-grid refinement-options">
+                <label className="input-group">
+                  <span>Retriever</span>
+                  <select
+                    value={form.ragRetrieverModel}
+                    onChange={(event) => onFieldChange(
+                      "ragRetrieverModel",
+                      event.target.value,
+                    )}
+                  >
+                    {ragRetrieverModels.map((model) => (
+                      <option key={model.value} value={model.value}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="input-group">
+                  <span>Context Docs</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={form.ragContextDocs}
+                    onChange={(event) => onFieldChange(
+                      "ragContextDocs",
+                      event.target.value,
+                    )}
+                  />
+                </label>
+
+                <label className="input-group">
+                  <span>Answer Sentences</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={form.ragAnswerSentences}
+                    onChange={(event) => onFieldChange(
+                      "ragAnswerSentences",
+                      event.target.value,
+                    )}
+                  />
+                </label>
+              </div>
+
+              <div className="switch-grid">
+                <label className="switch-card">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.includeSources)}
+                    onChange={(event) => onFieldChange(
+                      "includeSources",
+                      event.target.checked,
+                    )}
+                  />
+                  <span>
+                    <strong>Sources</strong>
+                    <small>Show cited documents used for the answer</small>
+                  </span>
+                </label>
               </div>
             </div>
           ) : null}

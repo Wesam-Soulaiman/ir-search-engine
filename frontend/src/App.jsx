@@ -80,6 +80,15 @@ function App() {
         include_biomedical: data.include_biomedical,
         feature_count: data.feature_count,
         training_metadata: data.training_metadata,
+        rag: data.rag,
+        rag_retriever_model: data.rag_retriever_model,
+        rag_context_docs: data.rag_context_docs,
+        rag_answer_sentences: data.rag_answer_sentences,
+        include_sources: data.include_sources,
+        answer: data.answer,
+        answer_confidence: data.answer_confidence,
+        sources: data.sources,
+        metadata: data.metadata,
         tfidf_weight: data.tfidf_weight,
         bm25_weight: data.bm25_weight,
         embedding_weight: data.embedding_weight,
@@ -143,6 +152,7 @@ function App() {
             <ResultsSection
               results={results}
               hasSearched={hasSearched}
+              info={responseInfo}
             />
           )}
         </div>

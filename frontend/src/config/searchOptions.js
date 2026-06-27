@@ -68,6 +68,48 @@ export const MODELS = [
     description: "Trained reranker over lexical and semantic candidates.",
     tag: "Reranker",
   },
+  {
+    value: "rag",
+    label: "RAG Answer",
+    description: "Grounded offline answer synthesis over retrieved documents.",
+    tag: "Answer",
+  },
+];
+
+export const RAG_RETRIEVER_MODELS = [
+  {
+    value: "bm25",
+    label: "BM25",
+  },
+  {
+    value: "tfidf",
+    label: "TF-IDF",
+  },
+  {
+    value: "embedding",
+    label: "Embedding",
+  },
+  {
+    value: "hybrid_serial",
+    label: "Hybrid Serial",
+  },
+  {
+    value: "hybrid_parallel",
+    label: "Hybrid Parallel",
+  },
+  {
+    value: "ltr",
+    label: "LTR",
+  },
+  {
+    value: "distributed_bm25",
+    label: "Distributed BM25",
+  },
+  {
+    value: "biomedical_embedding",
+    label: "Biomedical PubMedBERT",
+    clinicalOnly: true,
+  },
 ];
 
 export const EXAMPLE_QUERIES = {
@@ -100,6 +142,10 @@ export const DEFAULT_SEARCH_FORM = {
     embedding: true,
   },
   includeBiomedical: false,
+  ragRetrieverModel: "hybrid_serial",
+  ragContextDocs: 5,
+  ragAnswerSentences: 4,
+  includeSources: true,
   tfidfWeight: 1.0,
   bm25Weight: 1.0,
   embeddingWeight: 1.0,

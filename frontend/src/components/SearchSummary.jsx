@@ -9,6 +9,7 @@ function SearchSummary({
   const isWeightedHybrid = model === "hybrid_parallel";
   const isDistributed = Boolean(info.distributed) || model === "distributed_bm25";
   const isLtr = Boolean(info.ltr) || model === "ltr";
+  const isRag = Boolean(info.rag) || model === "rag";
 
   return (
     <section className="search-summary">
@@ -91,6 +92,23 @@ function SearchSummary({
                 Model: {info.ltr_model_path}
               </>
             ) : null}
+          </p>
+        </div>
+      ) : null}
+
+      {isRag ? (
+        <div className="summary-note">
+          <span>RAG: Yes</span>
+          <p>
+            Retriever: {info.rag_retriever_model}
+            {" | "}
+            Context docs: {info.rag_context_docs}
+            {" | "}
+            Answer sentences: {info.rag_answer_sentences}
+            {" | "}
+            Confidence: {info.answer_confidence}
+            {" | "}
+            External LLM: {String(Boolean(info.metadata?.external_llm_used))}
           </p>
         </div>
       ) : null}

@@ -3,7 +3,10 @@ import ResultCard from "./ResultCard";
 function ResultsSection({
   results,
   hasSearched,
+  info,
 }) {
+  const showRagAnswer = Boolean(info?.rag);
+
   if (!hasSearched) {
     return (
       <section className="placeholder-state" id="results">
@@ -17,7 +20,7 @@ function ResultsSection({
     );
   }
 
-  if (!results.length) {
+  if (!results.length && !showRagAnswer) {
     return (
       <section className="placeholder-state" id="results">
         <div className="placeholder-orb danger" />
@@ -31,6 +34,42 @@ function ResultsSection({
 
   return (
     <section className="results-section" id="results">
+      {showRagAnswer ? (
+        <article className="rag-answer-card">
+          <div className="rag-answer-header">
+            <div>
+              <span>RAG answer</span>
+              <h2>{info.answer_confidence || "unknown"} confidence</h2>
+            </div>
+
+            <strong>{info.rag_retriever_model}</strong>
+          </div>
+
+          <p>{info.answer}</p>
+
+          {info.sources?.length ? (
+            <div className="rag-source-list">
+              {info.sources.map((source) => (
+                <div
+                  className="rag-source"
+                  key={`${source.source_id}-${source.doc_id}`}
+                >
+                  <span>[{source.source_id}]</span>
+                  <div>
+                    <strong>
+                      {source.title || `Document ${source.doc_id}`}
+                    </strong>
+                    <small>
+                      Rank {source.rank} | Doc ID {source.doc_id}
+                    </small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </article>
+      ) : null}
+
       {results.map((result) => (
         <ResultCard
           key={`${result.rank}-${result.doc_id}`}

@@ -52,6 +52,15 @@ from retrieval.ltr_service import (
 from retrieval.personalization_service import (
     PersonalizedQueryService,
 )
+from retrieval.rag_service import (
+    DEFAULT_RAG_ANSWER_SENTENCES,
+    DEFAULT_RAG_CONTEXT_DOCS,
+    DEFAULT_RAG_RETRIEVER_MODEL,
+    MAX_RAG_ANSWER_SENTENCES,
+    MAX_RAG_CONTEXT_DOCS,
+    RAGRetrievalService,
+    normalize_rag_retriever_model,
+)
 from retrieval.request_validation import (
     parse_boolean,
     parse_float,
@@ -82,6 +91,7 @@ SUPPORTED_MODELS = {
     "hybrid_serial",
     "hybrid_parallel",
     "ltr",
+    "rag",
     "agent",
 }
 
@@ -602,6 +612,42 @@ def parse_search_request(
         field_name="ltr_model_path",
     )
 
+    rag_retriever_model = normalize_string_field(
+        request_data.get(
+            "rag_retriever_model",
+            DEFAULT_RAG_RETRIEVER_MODEL,
+        ),
+        field_name="rag_retriever_model",
+    ).lower()
+
+    rag_context_docs = parse_integer(
+        value=request_data.get(
+            "rag_context_docs"
+        ),
+        field_name="rag_context_docs",
+        default=DEFAULT_RAG_CONTEXT_DOCS,
+        minimum=1,
+        maximum=MAX_RAG_CONTEXT_DOCS,
+    )
+
+    rag_answer_sentences = parse_integer(
+        value=request_data.get(
+            "rag_answer_sentences"
+        ),
+        field_name="rag_answer_sentences",
+        default=DEFAULT_RAG_ANSWER_SENTENCES,
+        minimum=1,
+        maximum=MAX_RAG_ANSWER_SENTENCES,
+    )
+
+    include_sources = parse_boolean(
+        value=request_data.get(
+            "include_sources",
+            True,
+        ),
+        field_name="include_sources",
+    )
+
     if (
         model == "biomedical_embedding"
         and dataset_key != "clinical_trials"
@@ -630,6 +676,45 @@ def parse_search_request(
             "include_biomedical is only supported for the "
             "clinical_trials dataset."
         )
+
+    if model == "rag":
+        rag_retriever_model = (
+            normalize_rag_retriever_model(
+                rag_retriever_model,
+                dataset_key=dataset_key,
+            )
+        )
+
+        if (
+            include_biomedical
+            and dataset_key != "clinical_trials"
+        ):
+            raise ValueError(
+                "include_biomedical is only supported for "
+                "RAG over LTR on the clinical_trials dataset."
+            )
+
+        if (
+            rag_retriever_model == "hybrid_parallel"
+            and biomedical_weight > 0
+            and dataset_key != "clinical_trials"
+        ):
+            raise ValueError(
+                "biomedical_weight can only be used with "
+                "RAG hybrid_parallel retrieval on the "
+                "clinical_trials dataset."
+            )
+
+        if rag_retriever_model == "ltr":
+            ltr_candidate_models = (
+                normalize_ltr_candidate_models(
+                    ltr_candidate_models,
+                    include_biomedical=(
+                        include_biomedical
+                    ),
+                    dataset_key=dataset_key,
+                )
+            )
 
     if model == "ltr":
         ltr_candidate_models = (
@@ -714,12 +799,24 @@ def parse_search_request(
         maximum=MAX_PERSONALIZATION_TERMS,
     )
 
-    if (
+    hybrid_candidate_count_required = (
         model
         in {
             "hybrid_serial",
             "hybrid_parallel",
         }
+        or (
+            model == "rag"
+            and rag_retriever_model
+            in {
+                "hybrid_serial",
+                "hybrid_parallel",
+            }
+        )
+    )
+
+    if (
+        hybrid_candidate_count_required
         and candidate_count < top_k
     ):
         raise ValueError(
@@ -728,7 +825,14 @@ def parse_search_request(
         )
 
     if (
-        model == "hybrid_parallel"
+        (
+            model == "hybrid_parallel"
+            or (
+                model == "rag"
+                and rag_retriever_model
+                == "hybrid_parallel"
+            )
+        )
         and (
             tfidf_weight
             + bm25_weight
@@ -773,6 +877,18 @@ def parse_search_request(
             include_biomedical
         ),
         "ltr_model_path": ltr_model_path,
+        "rag_retriever_model": (
+            rag_retriever_model
+        ),
+        "rag_context_docs": (
+            rag_context_docs
+        ),
+        "rag_answer_sentences": (
+            rag_answer_sentences
+        ),
+        "include_sources": (
+            include_sources
+        ),
         "use_query_refinement": (
             use_query_refinement
         ),
@@ -866,7 +982,73 @@ def run_search(
     ltr_candidate_models: list[str] | None = None,
     include_biomedical: bool = False,
     ltr_model_path: str | None = None,
+    rag_retriever_model: str = DEFAULT_RAG_RETRIEVER_MODEL,
+    rag_context_docs: int = DEFAULT_RAG_CONTEXT_DOCS,
+    rag_answer_sentences: int = DEFAULT_RAG_ANSWER_SENTENCES,
+    include_sources: bool = True,
 ):
+    if model == "rag":
+        normalized_rag_retriever = (
+            normalize_rag_retriever_model(
+                rag_retriever_model,
+                dataset_key=dataset_key,
+            )
+        )
+
+        def retrieve_with_base_model(
+            model: str,
+            top_k: int,
+        ):
+            return run_search(
+                model=model,
+                dataset_key=dataset_key,
+                query=query,
+                top_k=top_k,
+                bm25_k1=bm25_k1,
+                bm25_b=bm25_b,
+                candidate_count=(
+                    candidate_count
+                ),
+                rrf_k=rrf_k,
+                tfidf_weight=tfidf_weight,
+                bm25_weight=bm25_weight,
+                embedding_weight=(
+                    embedding_weight
+                ),
+                biomedical_weight=(
+                    biomedical_weight
+                ),
+                num_shards=num_shards,
+                shard_top_k=shard_top_k,
+                ltr_candidate_models=(
+                    ltr_candidate_models
+                ),
+                include_biomedical=(
+                    include_biomedical
+                ),
+                ltr_model_path=(
+                    ltr_model_path
+                ),
+            )
+
+        service = RAGRetrievalService(
+            dataset_key=dataset_key,
+            retriever=retrieve_with_base_model,
+        )
+
+        return service.search(
+            query=query,
+            top_k=top_k,
+            retriever_model=(
+                normalized_rag_retriever
+            ),
+            context_docs=rag_context_docs,
+            answer_sentences=(
+                rag_answer_sentences
+            ),
+            include_sources=include_sources,
+        )
+
     if model == "tfidf":
         service = get_tfidf_service(
             dataset_key=dataset_key
@@ -1334,6 +1516,26 @@ def search_view(request):
             ltr_model_path=(
                 parameters["ltr_model_path"]
             ),
+            rag_retriever_model=(
+                parameters[
+                    "rag_retriever_model"
+                ]
+            ),
+            rag_context_docs=(
+                parameters[
+                    "rag_context_docs"
+                ]
+            ),
+            rag_answer_sentences=(
+                parameters[
+                    "rag_answer_sentences"
+                ]
+            ),
+            include_sources=(
+                parameters[
+                    "include_sources"
+                ]
+            ),
         )
 
         model_metadata: Dict[str, Any] = {}
@@ -1382,6 +1584,10 @@ def search_view(request):
 
         model_is_ltr = (
             executed_model == "ltr"
+        )
+
+        model_is_rag = (
+            executed_model == "rag"
         )
 
         model_is_hybrid = (
@@ -1471,6 +1677,17 @@ def search_view(request):
                 if (
                     model_is_hybrid
                     or model_is_ltr
+                    or (
+                        model_is_rag
+                        and parameters[
+                            "rag_retriever_model"
+                        ]
+                        in {
+                            "hybrid_serial",
+                            "hybrid_parallel",
+                            "ltr",
+                        }
+                    )
                 )
                 else None
             ),
@@ -1617,6 +1834,91 @@ def search_view(request):
                         {},
                     )
                 ),
+            })
+
+        if model_is_rag:
+            rag_metadata = {
+                "retriever_model": (
+                    model_metadata.get(
+                        "retriever_model",
+                        parameters[
+                            "rag_retriever_model"
+                        ],
+                    )
+                ),
+                "context_docs_used": (
+                    model_metadata.get(
+                        "context_docs_used"
+                    )
+                ),
+                "generation_mode": (
+                    model_metadata.get(
+                        "generation_mode"
+                    )
+                ),
+                "external_llm_used": (
+                    model_metadata.get(
+                        "external_llm_used",
+                        False,
+                    )
+                ),
+                "retriever_metadata": (
+                    model_metadata.get(
+                        "retriever_metadata",
+                        {},
+                    )
+                ),
+            }
+
+            response_payload.update({
+                "rag": True,
+                "rag_retriever_model": (
+                    rag_metadata[
+                        "retriever_model"
+                    ]
+                ),
+                "rag_context_docs": (
+                    model_metadata.get(
+                        "rag_context_docs",
+                        parameters[
+                            "rag_context_docs"
+                        ],
+                    )
+                ),
+                "rag_answer_sentences": (
+                    model_metadata.get(
+                        "rag_answer_sentences",
+                        parameters[
+                            "rag_answer_sentences"
+                        ],
+                    )
+                ),
+                "include_sources": (
+                    model_metadata.get(
+                        "include_sources",
+                        parameters[
+                            "include_sources"
+                        ],
+                    )
+                ),
+                "answer": (
+                    model_metadata.get(
+                        "answer",
+                        "",
+                    )
+                ),
+                "answer_confidence": (
+                    model_metadata.get(
+                        "answer_confidence"
+                    )
+                ),
+                "sources": (
+                    model_metadata.get(
+                        "sources",
+                        [],
+                    )
+                ),
+                "metadata": rag_metadata,
             })
 
         return Response(response_payload)

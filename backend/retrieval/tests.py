@@ -63,6 +63,13 @@ from retrieval.ltr_service import (
     LTRModelNotTrainedError,
     LTRRetrievalService,
 )
+from retrieval.rag_answer_generator import (
+    INSUFFICIENT_CONTEXT_ANSWER,
+    OfflineExtractiveRAGAnswerGenerator,
+)
+from retrieval.rag_service import (
+    RAGRetrievalService,
+)
 from retrieval.result_enrichment import (
     enrich_search_results,
 )
@@ -1173,6 +1180,119 @@ class LTRRetrievalServiceTests(SimpleTestCase):
                 metadata["feature_names"],
                 LTRFeatureExtractor.feature_names,
             )
+
+
+class RAGAnswerGeneratorTests(SimpleTestCase):
+    def test_generator_uses_only_retrieved_content(self):
+        generator = OfflineExtractiveRAGAnswerGenerator()
+
+        response = generator.generate(
+            query="diabetes insulin treatment",
+            retrieved_results=[
+                {
+                    "rank": 1,
+                    "doc_id": "D1",
+                    "title": "Diabetes care",
+                    "snippet": (
+                        "Insulin treatment can help manage diabetes."
+                    ),
+                    "score": 0.9,
+                },
+                {
+                    "rank": 2,
+                    "doc_id": "D2",
+                    "title": "Glucose",
+                    "snippet": (
+                        "Glucose monitoring is often used in diabetes treatment."
+                    ),
+                    "score": 0.8,
+                },
+            ],
+            max_context_docs=2,
+            max_answer_sentences=2,
+        )
+
+        self.assertIn(
+            "Insulin treatment can help manage diabetes",
+            response["answer"],
+        )
+        self.assertIn(
+            "Glucose monitoring is often used in diabetes treatment",
+            response["answer"],
+        )
+        self.assertTrue(
+            response["answer"].endswith("[2]")
+        )
+        self.assertFalse(
+            response["external_llm_used"]
+        )
+
+    def test_generator_returns_insufficient_context(self):
+        generator = OfflineExtractiveRAGAnswerGenerator()
+
+        response = generator.generate(
+            query="diabetes insulin",
+            retrieved_results=[
+                {
+                    "rank": 1,
+                    "doc_id": "D1",
+                    "snippet": "Stars orbit distant galaxies.",
+                }
+            ],
+            max_context_docs=1,
+            max_answer_sentences=2,
+        )
+
+        self.assertEqual(
+            response["answer"],
+            INSUFFICIENT_CONTEXT_ANSWER,
+        )
+        self.assertEqual(
+            response["confidence"],
+            "insufficient",
+        )
+
+
+class RAGRetrievalServiceTests(SimpleTestCase):
+    def test_rag_uses_selected_retriever(self):
+        retriever = MagicMock(
+            return_value=[
+                {
+                    "rank": 1,
+                    "doc_id": "D1",
+                    "title": "Nightmares",
+                    "snippet": (
+                        "Nightmares are disturbing dreams."
+                    ),
+                    "score": 0.7,
+                }
+            ]
+        )
+        service = RAGRetrievalService(
+            dataset_key="sample_dataset",
+            retriever=retriever,
+        )
+
+        response = service.search(
+            query="what are nightmares",
+            top_k=3,
+            retriever_model="bm25",
+            context_docs=1,
+            answer_sentences=1,
+        )
+
+        retriever.assert_called_once()
+        self.assertEqual(
+            retriever.call_args.kwargs["model"],
+            "bm25",
+        )
+        self.assertEqual(
+            response["metadata"]["retriever_model"],
+            "bm25",
+        )
+        self.assertTrue(
+            response["metadata"]["rag"]
+        )
 
 
 class LTREvaluationSupportTests(SimpleTestCase):
@@ -2575,6 +2695,135 @@ class SearchAPITests(APITestCase):
     @patch(
         "retrieval.views.run_search"
     )
+    def test_rag_search_can_be_requested(
+        self,
+        mocked_run_search,
+    ):
+        mocked_run_search.return_value = {
+            "results": [
+                {
+                    "rank": 1,
+                    "doc_id": "DOC001",
+                    "title": "Nightmares",
+                    "snippet": (
+                        "Nightmares are disturbing dreams."
+                    ),
+                    "score": 0.61,
+                }
+            ],
+            "metadata": {
+                "rag": True,
+                "retriever_model": "bm25",
+                "rag_retriever_model": "bm25",
+                "rag_context_docs": 3,
+                "rag_answer_sentences": 2,
+                "include_sources": True,
+                "answer": (
+                    "Nightmares are disturbing dreams [1]"
+                ),
+                "answer_confidence": "medium",
+                "sources": [
+                    {
+                        "source_id": 1,
+                        "doc_id": "DOC001",
+                        "title": "Nightmares",
+                        "snippet": (
+                            "Nightmares are disturbing dreams."
+                        ),
+                        "rank": 1,
+                        "score": 0.61,
+                    }
+                ],
+                "context_docs_used": 1,
+                "generation_mode": (
+                    "offline_extractive_grounded"
+                ),
+                "external_llm_used": False,
+            },
+        }
+
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "what are nightmares",
+                "dataset": "sample_dataset",
+                "model": "rag",
+                "top_k": 3,
+                "rag_retriever_model": "bm25",
+                "rag_context_docs": 3,
+                "rag_answer_sentences": 2,
+                "include_sources": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+        self.assertTrue(
+            response.data["rag"]
+        )
+        self.assertEqual(
+            response.data["rag_retriever_model"],
+            "bm25",
+        )
+        self.assertEqual(
+            response.data["answer"],
+            "Nightmares are disturbing dreams [1]",
+        )
+        self.assertEqual(
+            response.data["answer_confidence"],
+            "medium",
+        )
+        self.assertEqual(
+            response.data["sources"][0]["doc_id"],
+            "DOC001",
+        )
+        self.assertFalse(
+            response.data["metadata"][
+                "external_llm_used"
+            ]
+        )
+        self.assertEqual(
+            mocked_run_search.call_args.kwargs[
+                "model"
+            ],
+            "rag",
+        )
+        self.assertEqual(
+            mocked_run_search.call_args.kwargs[
+                "rag_retriever_model"
+            ],
+            "bm25",
+        )
+
+    def test_rag_rejects_biomedical_retriever_for_quora(self):
+        response = self.client.post(
+            self.search_url,
+            {
+                "query": "what causes nightmares",
+                "dataset": "quora",
+                "model": "rag",
+                "rag_retriever_model": (
+                    "biomedical_embedding"
+                ),
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+        self.assertIn(
+            "biomedical_embedding",
+            response.data["error"],
+        )
+
+    @patch(
+        "retrieval.views.run_search"
+    )
     def test_hybrid_parallel_accepts_optional_biomedical_weight(
         self,
         mocked_run_search,
@@ -2703,6 +2952,7 @@ class SearchAPITests(APITestCase):
                 "hybrid_serial",
                 "hybrid_parallel",
                 "ltr",
+                "rag",
             },
         )
 
