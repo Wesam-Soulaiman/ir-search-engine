@@ -2,6 +2,8 @@ import { DATASETS } from "../config/searchOptions";
 import ClusteringCharts from "./charts/ClusteringCharts";
 import EvaluationCharts from "./charts/EvaluationCharts";
 import TopicDetectionCharts from "./charts/TopicDetectionCharts";
+import Badge from "./ui/Badge";
+import PageHeader from "./ui/PageHeader";
 
 const ANALYTICS_TABS = [
   {
@@ -24,33 +26,42 @@ function AnalyticsDashboard({
   onDatasetChange,
   onTabChange,
 }) {
+  const activeLabel = ANALYTICS_TABS.find(
+    (tab) => tab.value === activeTab,
+  )?.label;
+
   return (
     <section className="analytics-section" id="analytics">
-      <div className="analytics-header">
-        <div>
-          <span className="section-kicker">Analytics</span>
-          <h2>
-            {ANALYTICS_TABS.find((tab) => tab.value === activeTab)?.label}
-          </h2>
-        </div>
-
-        <label className="analytics-dataset-select">
-          <span>Dataset</span>
-          <select
-            value={dataset}
-            onChange={(event) => onDatasetChange(event.target.value)}
-          >
-            {DATASETS.map((datasetOption) => (
-              <option
-                key={datasetOption.value}
-                value={datasetOption.value}
-              >
-                {datasetOption.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      <PageHeader
+        eyebrow="Analytics"
+        title={activeLabel}
+        description="Visualize evaluation metrics, clustering structure, and detected topics using backend report data and Recharts."
+        meta={(
+          <>
+            <Badge tone="info">Recharts</Badge>
+            <Badge tone="success">CSV-backed</Badge>
+            <Badge>{dataset}</Badge>
+          </>
+        )}
+        actions={(
+          <label className="analytics-dataset-select">
+            <span>Dataset</span>
+            <select
+              value={dataset}
+              onChange={(event) => onDatasetChange(event.target.value)}
+            >
+              {DATASETS.map((datasetOption) => (
+                <option
+                  key={datasetOption.value}
+                  value={datasetOption.value}
+                >
+                  {datasetOption.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      />
 
       <div className="analytics-tabs" role="tablist">
         {ANALYTICS_TABS.map((tab) => (

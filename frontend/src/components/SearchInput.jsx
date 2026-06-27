@@ -15,14 +15,16 @@ function SearchInput({
     <div className="search-input-card">
       <div className="search-input-row">
         <span className="search-symbol" aria-hidden="true">
-          ⌘
+          IR
         </span>
 
+        <span className="visually-hidden">Search query</span>
         <input
+          aria-label="Search query"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type a query, e.g. melanoma BRAF V600E clinical trial"
+          placeholder="Try: melanoma BRAF V600E clinical trial"
           autoComplete="off"
           autoFocus
         />
@@ -34,7 +36,7 @@ function SearchInput({
             onClick={() => onQueryChange("")}
             aria-label="Clear query"
           >
-            ×
+            x
           </button>
         ) : null}
 
@@ -44,7 +46,7 @@ function SearchInput({
           onClick={onSubmit}
           disabled={loading}
         >
-          {loading ? "Searching" : "Search"}
+          {loading ? "Searching..." : "Search"}
         </button>
       </div>
     </div>

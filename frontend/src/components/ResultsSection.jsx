@@ -1,4 +1,5 @@
 import ResultCard from "./ResultCard";
+import EmptyState from "./ui/EmptyState";
 
 function ResultsSection({
   results,
@@ -9,26 +10,22 @@ function ResultsSection({
 
   if (!hasSearched) {
     return (
-      <section className="placeholder-state" id="results">
-        <div className="placeholder-orb" />
-        <h2>Start a search to inspect ranked documents</h2>
-        <p>
-          Results will show document IDs, scores, snippets, raw text, and
-          retrieval metadata from the offline document store.
-        </p>
-      </section>
+      <EmptyState
+        id="results"
+        title="Start a search to inspect ranked documents"
+        message="Results will show rank, score, document identifiers, snippets, and retrieval metadata from the selected model."
+      />
     );
   }
 
   if (!results.length && !showRagAnswer) {
     return (
-      <section className="placeholder-state" id="results">
-        <div className="placeholder-orb danger" />
-        <h2>No documents found</h2>
-        <p>
-          Try another query, switch dataset, or use the Agent/Hybrid models.
-        </p>
-      </section>
+      <EmptyState
+        id="results"
+        tone="danger"
+        title="No documents found"
+        message="Try another query, switch dataset, or use the Agent or Hybrid models."
+      />
     );
   }
 

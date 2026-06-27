@@ -1,4 +1,5 @@
 import { DATASETS, MODELS } from "../config/searchOptions";
+import Badge from "./ui/Badge";
 
 function ControlPanel({
   form,
@@ -67,6 +68,26 @@ function ControlPanel({
           />
           <small>Returned documents</small>
         </label>
+      </div>
+
+      <div className="control-summary-strip">
+        <article>
+          <small>Selected dataset</small>
+          <strong>{selectedDataset?.label}</strong>
+          <p>{selectedDataset?.description}</p>
+        </article>
+        <article>
+          <small>Retrieval model</small>
+          <strong>{selectedModel?.label}</strong>
+          <p>{selectedModel?.description}</p>
+        </article>
+        <article>
+          <small>Output</small>
+          <strong>Top {form.topK}</strong>
+          <p>
+            <Badge tone="info">{selectedModel?.tag || "Model"}</Badge>
+          </p>
+        </article>
       </div>
     </section>
   );

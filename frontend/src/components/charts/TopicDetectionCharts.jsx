@@ -106,6 +106,15 @@ function TopicDetectionCharts({
         <span>{data.topic_count} topics</span>
       </div>
 
+      <div className="interpretation-panel">
+        <strong>How to read topic detection</strong>
+        <p>
+          Topic detection explains what the discovered groups are about. Topic
+          frequency shows coverage, and the selected-topic term chart shows the
+          representative words behind each label.
+        </p>
+      </div>
+
       <div className="analytics-grid">
         <ChartCard
           title="Topic Frequency Chart"
@@ -181,9 +190,17 @@ function TopicDetectionCharts({
                   <td>{topic.topic}</td>
                   <td>{formatNumber(topic.count)}</td>
                   <td>
-                    {(topic.top_terms || [])
-                      .map((term) => term.term)
-                      .join(", ") || "N/A"}
+                    {(topic.top_terms || []).length ? (
+                      <div className="term-chip-list">
+                        {topic.top_terms.map((term) => (
+                          <span key={`${topic.cluster_id}-${term.term}`}>
+                            {term.term}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      "N/A"
+                    )}
                   </td>
                   <td>
                     {(topic.examples || [])

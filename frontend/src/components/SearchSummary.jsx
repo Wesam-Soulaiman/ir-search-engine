@@ -1,3 +1,10 @@
+import Badge from "./ui/Badge";
+import MetricCard from "./ui/MetricCard";
+
+function joinItems(items) {
+  return items.filter(Boolean).join(" | ");
+}
+
 function SearchSummary({
   info,
 }) {
@@ -13,114 +20,82 @@ function SearchSummary({
 
   return (
     <section className="search-summary">
+      <div className="panel-header compact-header">
+        <div>
+          <span className="section-kicker">Run summary</span>
+          <h2>Search execution</h2>
+        </div>
+        <Badge tone="info">{model}</Badge>
+      </div>
+
       <div className="summary-grid">
-        <div>
-          <small>Dataset</small>
-          <strong>{info.dataset}</strong>
-        </div>
-
-        <div>
-          <small>Requested</small>
-          <strong>{info.requested_model || info.model}</strong>
-        </div>
-
-        <div>
-          <small>Executed</small>
-          <strong>{model}</strong>
-        </div>
-
-        <div>
-          <small>Results</small>
-          <strong>{info.result_count}</strong>
-        </div>
+        <MetricCard label="Dataset" value={info.dataset} />
+        <MetricCard label="Requested" value={info.requested_model || info.model} />
+        <MetricCard label="Executed" value={model} />
+        <MetricCard label="Results" value={info.result_count} />
       </div>
 
       {isWeightedHybrid ? (
         <div className="summary-note">
           <span>Weighted hybrid fusion</span>
           <p>
-            TF-IDF weight: {info.tfidf_weight}
-            {" · "}
-            BM25 weight: {info.bm25_weight}
-            {" · "}
-            Embedding weight: {info.embedding_weight}
-            {Number(info.biomedical_weight) > 0 ? (
-              <>
-                {" آ· "}
-                Biomedical PubMedBERT weight: {info.biomedical_weight}
-              </>
-            ) : null}
-            {" · "}
-            Fusion: {info.fusion_method || "Weighted RRF"}
+            {joinItems([
+              `TF-IDF weight: ${info.tfidf_weight}`,
+              `BM25 weight: ${info.bm25_weight}`,
+              `Embedding weight: ${info.embedding_weight}`,
+              Number(info.biomedical_weight) > 0
+                ? `Biomedical weight: ${info.biomedical_weight}`
+                : "",
+              `Fusion: ${info.fusion_method || "Weighted RRF"}`,
+            ])}
           </p>
         </div>
       ) : null}
 
       {isDistributed ? (
         <div className="summary-note">
-          <span>Distributed: Yes</span>
+          <span>Distributed retrieval</span>
           <p>
-            Shards queried: {info.shards_queried}
-            {" | "}
-            Merge method: {info.merge_method || "RRF"}
-            {" | "}
-            Shard top-k: {info.shard_top_k}
-            {" | "}
-            RRF k: {info.rrf_k}
+            {joinItems([
+              `Shards queried: ${info.shards_queried}`,
+              `Merge method: ${info.merge_method || "RRF"}`,
+              `Shard top-k: ${info.shard_top_k}`,
+              `RRF k: ${info.rrf_k}`,
+            ])}
           </p>
         </div>
       ) : null}
 
       {isLtr ? (
         <div className="summary-note">
-          <span>LTR: Yes</span>
+          <span>Learning to Rank</span>
           <p>
-            Candidate count: {info.candidate_count}
-            {" | "}
-            Candidate models: {(info.candidate_models || []).join(", ")}
-            {" | "}
-            Include biomedical: {String(Boolean(info.include_biomedical))}
-            {info.feature_count ? (
-              <>
-                {" | "}
-                Features: {info.feature_count}
-              </>
-            ) : null}
-            {info.ltr_model_path ? (
-              <>
-                {" | "}
-                Model: {info.ltr_model_path}
-              </>
-            ) : null}
+            {joinItems([
+              `Candidate count: ${info.candidate_count}`,
+              `Candidate models: ${(info.candidate_models || []).join(", ")}`,
+              `Include biomedical: ${String(Boolean(info.include_biomedical))}`,
+              info.feature_count ? `Features: ${info.feature_count}` : "",
+              info.ltr_model_path ? `Model: ${info.ltr_model_path}` : "",
+            ])}
           </p>
         </div>
       ) : null}
 
       {isRag ? (
         <div className="summary-note">
-          <span>RAG: Yes</span>
+          <span>RAG answer generation</span>
           <p>
-            Retriever: {info.rag_retriever_model}
-            {" | "}
-            Mode: {info.rag_generation_mode || "extractive_offline"}
-            {" | "}
-            Context docs: {info.rag_context_docs}
-            {" | "}
-            Answer sentences: {info.rag_answer_sentences}
-            {" | "}
-            Confidence: {info.answer_confidence}
-            {" | "}
-            Local LLM: {String(Boolean(info.metadata?.local_llm_used))}
-            {" | "}
-            External LLM: {String(Boolean(info.metadata?.external_llm_used))}
-            {info.rag_generation_mode === "local_llm" ? (
-              <>
-                {" | "}
-                Provider: {info.rag_llm_provider}
-                {" | "}
-                Model: {info.rag_llm_model}
-              </>
-            ) : null}
+            {joinItems([
+              `Retriever: ${info.rag_retriever_model}`,
+              `Mode: ${info.rag_generation_mode || "extractive_offline"}`,
+              `Context docs: ${info.rag_context_docs}`,
+              `Answer sentences: ${info.rag_answer_sentences}`,
+              `Confidence: ${info.answer_confidence}`,
+              `Local LLM: ${String(Boolean(info.metadata?.local_llm_used))}`,
+              info.rag_generation_mode === "local_llm"
+                ? `Model: ${info.rag_llm_model}`
+                : "",
+            ])}
           </p>
         </div>
       ) : null}
@@ -136,11 +111,12 @@ function SearchSummary({
         <div className="summary-note">
           <span>Corrected query</span>
           <p>
-            {info.corrected_query}
-            {" | "}
-            Corrections: {(info.spelling_corrections || [])
-              .map((item) => `${item.original} -> ${item.corrected}`)
-              .join(", ")}
+            {joinItems([
+              info.corrected_query,
+              `Corrections: ${(info.spelling_corrections || [])
+                .map((item) => `${item.original} -> ${item.corrected}`)
+                .join(", ")}`,
+            ])}
           </p>
         </div>
       ) : null}
@@ -149,11 +125,11 @@ function SearchSummary({
         <div className="summary-note">
           <span>Personalized query</span>
           <p>
-            Original: {info.original_query}
-            {" آ· "}
-            Personalized: {info.personalized_query}
-            {" آ· "}
-            Added: {(info.personalization_terms || []).join(", ")}
+            {joinItems([
+              `Original: ${info.original_query}`,
+              `Personalized: ${info.personalized_query}`,
+              `Added: ${(info.personalization_terms || []).join(", ")}`,
+            ])}
           </p>
         </div>
       ) : null}
@@ -165,7 +141,7 @@ function SearchSummary({
             <div>
               <strong>Agent decision</strong>
               <small>
-                selected {info.agent_selected_model || "N/A"} · executed {model}
+                selected {info.agent_selected_model || "N/A"} | executed {model}
               </small>
             </div>
           </div>

@@ -3,6 +3,43 @@ import {
   RAG_RETRIEVER_MODELS,
 } from "../config/searchOptions";
 
+function AdvancedGroup({
+  title,
+  description,
+  children,
+}) {
+  return (
+    <section className="advanced-group">
+      <div className="advanced-group-header">
+        <strong>{title}</strong>
+        <small>{description}</small>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function SwitchCard({
+  checked,
+  onChange,
+  title,
+  description,
+}) {
+  return (
+    <label className="switch-card">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span>
+        <strong>{title}</strong>
+        <small>{description}</small>
+      </span>
+    </label>
+  );
+}
+
 function AdvancedPanel({
   form,
   onFieldChange,
@@ -12,34 +49,21 @@ function AdvancedPanel({
     || form.model === "hybrid_parallel"
     || form.model === "agent"
   );
-
   const showParallelFusion = (
     form.model === "hybrid_parallel"
     || form.model === "agent"
   );
-
-  const showDistributed = (
-    form.model === "distributed_bm25"
-  );
-
-  const showLtr = (
-    form.model === "ltr"
-  );
-
-  const showRag = (
-    form.model === "rag"
-  );
-
+  const showDistributed = form.model === "distributed_bm25";
+  const showLtr = form.model === "ltr";
+  const showRag = form.model === "rag";
   const showBiomedicalFusion = (
     form.dataset === "clinical_trials"
     && form.model === "hybrid_parallel"
   );
-
   const showLtrBiomedical = (
     form.dataset === "clinical_trials"
     && showLtr
   );
-
   const ragRetrieverModels = RAG_RETRIEVER_MODELS.filter(
     (model) => !model.clinicalOnly || form.dataset === "clinical_trials",
   );
@@ -62,103 +86,105 @@ function AdvancedPanel({
     <section className="advanced-card">
       <details>
         <summary>
-          <span>
-            Advanced retrieval parameters
-          </span>
-          <small>
-            Fine-tune BM25, hybrid retrieval, snippets, and query refinement
-          </small>
+          <span>Advanced options</span>
+          <small>Ranking, fusion, query refinement, RAG, and output controls</small>
         </summary>
 
         <div className="advanced-body">
-          <div className="advanced-grid">
-            <label className="input-group">
-              <span>BM25 k1</span>
-              <input
-                type="number"
-                min="0.000001"
-                max="100"
-                step="0.1"
-                value={form.bm25K1}
-                onChange={(event) => onFieldChange(
-                  "bm25K1",
-                  event.target.value,
-                )}
-              />
-            </label>
-
-            <label className="input-group">
-              <span>BM25 b</span>
-              <input
-                type="number"
-                min="0"
-                max="1"
-                step="0.05"
-                value={form.bm25B}
-                onChange={(event) => onFieldChange(
-                  "bm25B",
-                  event.target.value,
-                )}
-              />
-            </label>
-
-            {showHybrid ? (
+          <AdvancedGroup
+            title="Ranking parameters"
+            description="Core retrieval settings used by lexical, hybrid, and result-display workflows."
+          >
+            <div className="advanced-grid">
               <label className="input-group">
-                <span>Candidate Count</span>
+                <span>BM25 k1</span>
                 <input
                   type="number"
-                  min="1"
-                  max="10000"
-                  value={form.candidateCount}
+                  min="0.000001"
+                  max="100"
+                  step="0.1"
+                  value={form.bm25K1}
                   onChange={(event) => onFieldChange(
-                    "candidateCount",
+                    "bm25K1",
                     event.target.value,
                   )}
                 />
+                <small>Term-frequency saturation</small>
               </label>
-            ) : null}
 
-            {showParallelFusion ? (
               <label className="input-group">
-                <span>RRF K</span>
+                <span>BM25 b</span>
                 <input
                   type="number"
-                  min="1"
-                  max="100000"
-                  value={form.rrfK}
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={form.bm25B}
                   onChange={(event) => onFieldChange(
-                    "rrfK",
+                    "bm25B",
                     event.target.value,
                   )}
                 />
+                <small>Length normalization</small>
               </label>
-            ) : null}
 
-            <label className="input-group">
-              <span>Snippet Length</span>
-              <input
-                type="number"
-                min="1"
-                max="5000"
-                value={form.snippetLength}
-                onChange={(event) => onFieldChange(
-                  "snippetLength",
-                  event.target.value,
-                )}
-              />
-            </label>
-          </div>
+              {showHybrid ? (
+                <label className="input-group">
+                  <span>Candidate Count</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10000"
+                    value={form.candidateCount}
+                    onChange={(event) => onFieldChange(
+                      "candidateCount",
+                      event.target.value,
+                    )}
+                  />
+                  <small>Pool before fusion/rerank</small>
+                </label>
+              ) : null}
+
+              {showParallelFusion ? (
+                <label className="input-group">
+                  <span>RRF K</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100000"
+                    value={form.rrfK}
+                    onChange={(event) => onFieldChange(
+                      "rrfK",
+                      event.target.value,
+                    )}
+                  />
+                  <small>Rank fusion smoothing</small>
+                </label>
+              ) : null}
+
+              <label className="input-group">
+                <span>Snippet Length</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="5000"
+                  value={form.snippetLength}
+                  onChange={(event) => onFieldChange(
+                    "snippetLength",
+                    event.target.value,
+                  )}
+                />
+                <small>Preview characters</small>
+              </label>
+            </div>
+          </AdvancedGroup>
 
           {showParallelFusion ? (
-            <div className="fusion-weight-card">
-              <div className="fusion-weight-header">
-                <strong>Weighted Hybrid Parallel Fusion</strong>
-                <small>
-                  Weighted RRF: higher weight means stronger influence in fusion.
-                </small>
-              </div>
-
-              <div className="advanced-grid refinement-options">
+            <AdvancedGroup
+              title="Hybrid parallel fusion"
+              description="Weighted RRF combines multiple retrieval signals without changing model outputs."
+            >
+              <div className="advanced-grid">
                 <label className="input-group">
                   <span>TF-IDF Weight</span>
                   <input
@@ -206,7 +232,7 @@ function AdvancedPanel({
 
                 {showBiomedicalFusion ? (
                   <label className="input-group">
-                    <span>Biomedical PubMedBERT Weight</span>
+                    <span>Biomedical Weight</span>
                     <input
                       type="number"
                       min="0"
@@ -221,19 +247,15 @@ function AdvancedPanel({
                   </label>
                 ) : null}
               </div>
-            </div>
+            </AdvancedGroup>
           ) : null}
 
           {showDistributed ? (
-            <div className="fusion-weight-card">
-              <div className="fusion-weight-header">
-                <strong>Distributed BM25</strong>
-                <small>
-                  Local shard fan-out with RRF coordinator merge.
-                </small>
-              </div>
-
-              <div className="advanced-grid refinement-options">
+            <AdvancedGroup
+              title="Distributed BM25"
+              description="Local shard fan-out with an RRF coordinator merge."
+            >
+              <div className="advanced-grid">
                 <label className="input-group">
                   <span>Shards</span>
                   <input
@@ -276,18 +298,14 @@ function AdvancedPanel({
                   />
                 </label>
               </div>
-            </div>
+            </AdvancedGroup>
           ) : null}
 
           {showLtr ? (
-            <div className="fusion-weight-card">
-              <div className="fusion-weight-header">
-                <strong>Learning to Rank</strong>
-                <small>
-                  Rerank candidates from selected base retrieval models.
-                </small>
-              </div>
-
+            <AdvancedGroup
+              title="Learning to Rank"
+              description="Rerank candidates from selected base retrieval models."
+            >
               <div className="advanced-grid refinement-options">
                 <label className="input-group">
                   <span>Candidate Count</span>
@@ -305,81 +323,42 @@ function AdvancedPanel({
               </div>
 
               <div className="switch-grid">
-                <label className="switch-card">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form.ltrCandidateModels?.bm25)}
-                    onChange={(event) => updateLtrCandidateModel(
-                      "bm25",
-                      event.target.checked,
-                    )}
-                  />
-                  <span>
-                    <strong>BM25</strong>
-                    <small>Lexical candidate source</small>
-                  </span>
-                </label>
-
-                <label className="switch-card">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form.ltrCandidateModels?.tfidf)}
-                    onChange={(event) => updateLtrCandidateModel(
-                      "tfidf",
-                      event.target.checked,
-                    )}
-                  />
-                  <span>
-                    <strong>TF-IDF</strong>
-                    <small>Vector-space candidate source</small>
-                  </span>
-                </label>
-
-                <label className="switch-card">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form.ltrCandidateModels?.embedding)}
-                    onChange={(event) => updateLtrCandidateModel(
-                      "embedding",
-                      event.target.checked,
-                    )}
-                  />
-                  <span>
-                    <strong>Embedding</strong>
-                    <small>Semantic candidate source</small>
-                  </span>
-                </label>
-
+                <SwitchCard
+                  checked={Boolean(form.ltrCandidateModels?.bm25)}
+                  onChange={(enabled) => updateLtrCandidateModel("bm25", enabled)}
+                  title="BM25"
+                  description="Lexical candidate source"
+                />
+                <SwitchCard
+                  checked={Boolean(form.ltrCandidateModels?.tfidf)}
+                  onChange={(enabled) => updateLtrCandidateModel("tfidf", enabled)}
+                  title="TF-IDF"
+                  description="Vector-space candidate source"
+                />
+                <SwitchCard
+                  checked={Boolean(form.ltrCandidateModels?.embedding)}
+                  onChange={(enabled) => updateLtrCandidateModel("embedding", enabled)}
+                  title="Embedding"
+                  description="Semantic candidate source"
+                />
                 {showLtrBiomedical ? (
-                  <label className="switch-card">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(form.includeBiomedical)}
-                      onChange={(event) => onFieldChange(
-                        "includeBiomedical",
-                        event.target.checked,
-                      )}
-                    />
-                    <span>
-                      <strong>Biomedical PubMedBERT</strong>
-                      <small>Clinical Trials candidate source</small>
-                    </span>
-                  </label>
+                  <SwitchCard
+                    checked={Boolean(form.includeBiomedical)}
+                    onChange={(enabled) => onFieldChange("includeBiomedical", enabled)}
+                    title="Biomedical PubMedBERT"
+                    description="Clinical Trials candidate source"
+                  />
                 ) : null}
               </div>
-            </div>
+            </AdvancedGroup>
           ) : null}
 
           {showRag ? (
-            <div className="fusion-weight-card">
-              <div className="fusion-weight-header">
-                <strong>RAG Answer</strong>
-                <small>
-                  Generate a grounded answer from retrieved documents.
-                </small>
-              </div>
-
-              <div className="advanced-grid refinement-options">
+            <AdvancedGroup
+              title="RAG options"
+              description="Configure grounded answer synthesis over retrieved evidence."
+            >
+              <div className="advanced-grid">
                 <label className="input-group">
                   <span>Retriever</span>
                   <select
@@ -514,135 +493,97 @@ function AdvancedPanel({
               ) : null}
 
               <div className="switch-grid">
-                <label className="switch-card">
+                <SwitchCard
+                  checked={Boolean(form.includeSources)}
+                  onChange={(enabled) => onFieldChange("includeSources", enabled)}
+                  title="Sources"
+                  description="Show cited documents used for the answer"
+                />
+              </div>
+            </AdvancedGroup>
+          ) : null}
+
+          <AdvancedGroup
+            title="Query processing and output"
+            description="Optional query cleanup, expansion, personalization, and raw text display."
+          >
+            <div className="switch-grid">
+              <SwitchCard
+                checked={form.useSpellingCorrection}
+                onChange={(enabled) => onFieldChange("useSpellingCorrection", enabled)}
+                title="Spelling correction"
+                description="Offline conservative query cleanup"
+              />
+              <SwitchCard
+                checked={form.useQueryRefinement}
+                onChange={(enabled) => onFieldChange("useQueryRefinement", enabled)}
+                title="Query refinement"
+                description="Pseudo-relevance feedback expansion"
+              />
+              <SwitchCard
+                checked={form.includeRawText}
+                onChange={(enabled) => onFieldChange("includeRawText", enabled)}
+                title="Raw document text"
+                description="Show original raw text for top results"
+              />
+              <SwitchCard
+                checked={form.usePersonalization}
+                onChange={(enabled) => onFieldChange("usePersonalization", enabled)}
+                title="Personalization"
+                description="Anonymous local query profile"
+              />
+            </div>
+
+            {form.useQueryRefinement ? (
+              <div className="advanced-grid refinement-options">
+                <label className="input-group">
+                  <span>Feedback Docs</span>
                   <input
-                    type="checkbox"
-                    checked={Boolean(form.includeSources)}
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={form.feedbackDocs}
                     onChange={(event) => onFieldChange(
-                      "includeSources",
-                      event.target.checked,
+                      "feedbackDocs",
+                      event.target.value,
                     )}
                   />
-                  <span>
-                    <strong>Sources</strong>
-                    <small>Show cited documents used for the answer</small>
-                  </span>
+                </label>
+
+                <label className="input-group">
+                  <span>Expansion Terms</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={form.expansionTerms}
+                    onChange={(event) => onFieldChange(
+                      "expansionTerms",
+                      event.target.value,
+                    )}
+                  />
                 </label>
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          <div className="switch-grid">
-            <label className="switch-card">
-              <input
-                type="checkbox"
-                checked={form.useSpellingCorrection}
-                onChange={(event) => onFieldChange(
-                  "useSpellingCorrection",
-                  event.target.checked,
-                )}
-              />
-              <span>
-                <strong>Spelling correction</strong>
-                <small>Offline conservative query cleanup</small>
-              </span>
-            </label>
-
-            <label className="switch-card">
-              <input
-                type="checkbox"
-                checked={form.useQueryRefinement}
-                onChange={(event) => onFieldChange(
-                  "useQueryRefinement",
-                  event.target.checked,
-                )}
-              />
-              <span>
-                <strong>Query refinement</strong>
-                <small>Pseudo-relevance feedback expansion</small>
-              </span>
-            </label>
-
-            <label className="switch-card">
-              <input
-                type="checkbox"
-                checked={form.includeRawText}
-                onChange={(event) => onFieldChange(
-                  "includeRawText",
-                  event.target.checked,
-                )}
-              />
-              <span>
-                <strong>Raw document text</strong>
-                <small>Show original raw text for top results</small>
-              </span>
-            </label>
-
-            <label className="switch-card">
-              <input
-                type="checkbox"
-                checked={form.usePersonalization}
-                onChange={(event) => onFieldChange(
-                  "usePersonalization",
-                  event.target.checked,
-                )}
-              />
-              <span>
-                <strong>Personalization</strong>
-                <small>Anonymous local query profile</small>
-              </span>
-            </label>
-          </div>
-
-          {form.useQueryRefinement ? (
-            <div className="advanced-grid refinement-options">
-              <label className="input-group">
-                <span>Feedback Docs</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={form.feedbackDocs}
-                  onChange={(event) => onFieldChange(
-                    "feedbackDocs",
-                    event.target.value,
-                  )}
-                />
-              </label>
-
-              <label className="input-group">
-                <span>Expansion Terms</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={form.expansionTerms}
-                  onChange={(event) => onFieldChange(
-                    "expansionTerms",
-                    event.target.value,
-                  )}
-                />
-              </label>
-            </div>
-          ) : null}
-
-          {form.usePersonalization ? (
-            <div className="advanced-grid refinement-options">
-              <label className="input-group">
-                <span>Profile Terms</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="20"
-                  value={form.maxPersonalizationTerms}
-                  onChange={(event) => onFieldChange(
-                    "maxPersonalizationTerms",
-                    event.target.value,
-                  )}
-                />
-              </label>
-            </div>
-          ) : null}
+            {form.usePersonalization ? (
+              <div className="advanced-grid refinement-options">
+                <label className="input-group">
+                  <span>Profile Terms</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={form.maxPersonalizationTerms}
+                    onChange={(event) => onFieldChange(
+                      "maxPersonalizationTerms",
+                      event.target.value,
+                    )}
+                  />
+                </label>
+              </div>
+            ) : null}
+          </AdvancedGroup>
         </div>
       </details>
     </section>

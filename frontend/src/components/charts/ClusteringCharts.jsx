@@ -114,6 +114,15 @@ function ClusteringCharts({
         <span>{data.num_clusters} clusters</span>
       </div>
 
+      <div className="interpretation-panel">
+        <strong>How to read clustering</strong>
+        <p>
+          Document clustering groups similar documents together using the
+          prepared feature space. The size chart shows how documents are
+          distributed, while top terms and examples help interpret each group.
+        </p>
+      </div>
+
       <div className="analytics-grid">
         <ChartCard
           title="Cluster Size Distribution"
@@ -191,9 +200,17 @@ function ClusteringCharts({
                   <td>{cluster.label}</td>
                   <td>{formatNumber(cluster.size)}</td>
                   <td>
-                    {(cluster.top_terms || [])
-                      .map((term) => term.term)
-                      .join(", ") || "N/A"}
+                    {(cluster.top_terms || []).length ? (
+                      <div className="term-chip-list">
+                        {cluster.top_terms.map((term) => (
+                          <span key={`${cluster.cluster_id}-${term.term}`}>
+                            {term.term}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      "N/A"
+                    )}
                   </td>
                   <td>
                     {(cluster.examples || [])

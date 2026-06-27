@@ -1,3 +1,5 @@
+import Badge from "./ui/Badge";
+
 function formatScore(score) {
   if (score === null || score === undefined || Number.isNaN(Number(score))) {
     return "N/A";
@@ -14,14 +16,22 @@ function ResultCard({
 
   return (
     <article className="result-card">
-      <aside className="rank-badge">
-        {result.rank}
+      <aside className="rank-column" aria-label={`Rank ${result.rank}`}>
+        <span className="rank-badge">{result.rank}</span>
+        <small>Rank</small>
       </aside>
 
       <div className="result-content">
-        <div className="result-source">
-          <span>{result.document_source || "retrieval_index"}</span>
-          <span>Doc ID: {result.doc_id}</span>
+        <div className="result-topline">
+          <div className="result-source">
+            <Badge tone="success">{result.document_source || "retrieval_index"}</Badge>
+            <Badge>Doc ID: {result.doc_id}</Badge>
+          </div>
+
+          <div className="score-pill">
+            <small>Score</small>
+            <strong>{formatScore(result.score)}</strong>
+          </div>
         </div>
 
         <h3>{title}</h3>
@@ -31,8 +41,6 @@ function ResultCard({
         </p>
 
         <div className="result-metrics">
-          <span>Score {formatScore(result.score)}</span>
-
           {result.bm25_rank !== null && result.bm25_rank !== undefined ? (
             <span>BM25 rank {result.bm25_rank}</span>
           ) : null}

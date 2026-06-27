@@ -13,6 +13,8 @@ import LoadingResults from "./components/LoadingResults";
 import RagChatPanel from "./components/RagChatPanel";
 import ResultsSection from "./components/ResultsSection";
 import SearchSummary from "./components/SearchSummary";
+import Badge from "./components/ui/Badge";
+import PageHeader from "./components/ui/PageHeader";
 import { DEFAULT_SEARCH_FORM } from "./config/searchOptions";
 
 import "./App.css";
@@ -190,6 +192,19 @@ function App() {
 
       {activeView === "rag" ? (
         <section className="single-workspace">
+          <PageHeader
+            eyebrow="RAG Chat"
+            title="Ask grounded questions over retrieved documents"
+            description="Use the same retrieval stack as search, then generate an extractive answer with citations from the ranked evidence."
+            meta={(
+              <>
+                <Badge tone="info">Non-streaming</Badge>
+                <Badge tone="success">Cited sources</Badge>
+                <Badge>{form.dataset}</Badge>
+              </>
+            )}
+          />
+
           <RagChatPanel
             form={form}
             onFieldChange={updateField}

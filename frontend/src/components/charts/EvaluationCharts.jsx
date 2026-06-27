@@ -373,6 +373,29 @@ function EvaluationCharts({
         </div>
       ) : null}
 
+      <div className="metric-explainer-grid">
+        <article>
+          <strong>MAP</strong>
+          <p>Mean Average Precision summarizes ranking quality across queries.</p>
+        </article>
+        <article>
+          <strong>Precision@10</strong>
+          <p>How many of the top ten retrieved documents are relevant.</p>
+        </article>
+        <article>
+          <strong>Recall</strong>
+          <p>How much of the known relevant set is recovered at the reported cutoff.</p>
+        </article>
+        <article>
+          <strong>nDCG</strong>
+          <p>Rewards relevant documents appearing higher in the ranked list.</p>
+        </article>
+        <article>
+          <strong>Runtime / QPS</strong>
+          <p>Shows evaluation wall time, average latency, or throughput when available.</p>
+        </article>
+      </div>
+
       <div className="analytics-grid">
         <ChartCard
           title={modelSection.label || "Model Quality Comparison"}

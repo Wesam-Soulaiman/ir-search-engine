@@ -6,6 +6,7 @@ import {
   RAG_GENERATION_MODES,
   RAG_RETRIEVER_MODELS,
 } from "../config/searchOptions";
+import Badge from "./ui/Badge";
 
 const STORAGE_KEY = "ir_rag_chat_messages";
 
@@ -145,6 +146,10 @@ function RagChatPanel({
         <div>
           <span className="section-kicker">RAG Chat</span>
           <h2>Ask against retrieved documents</h2>
+          <p>
+            Answers are generated after retrieval and include ranked evidence
+            when sources are enabled.
+          </p>
         </div>
 
         <button
@@ -155,6 +160,13 @@ function RagChatPanel({
         >
           Clear chat
         </button>
+      </div>
+
+      <div className="rag-status-row" aria-label="Current RAG configuration">
+        <Badge tone="info">{form.dataset}</Badge>
+        <Badge>{form.ragRetrieverModel}</Badge>
+        <Badge tone="success">{form.ragGenerationMode}</Badge>
+        <Badge>{form.ragContextDocs} context docs</Badge>
       </div>
 
       <div className="rag-chat-controls">
@@ -328,6 +340,20 @@ function RagChatPanel({
               Ask a question and the assistant will answer from retrieved
               documents, with sources and the ranked evidence kept nearby.
             </p>
+            <div className="empty-prompt-row">
+              <button
+                type="button"
+                onClick={() => setDraft("What evidence is available for diabetes insulin treatment?")}
+              >
+                Diabetes insulin treatment
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraft("What causes nightmares?")}
+              >
+                Nightmares evidence
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -398,15 +424,15 @@ function ChatMessage({
       <div className="chat-bubble assistant">
         <div className="assistant-meta">
           <small>Assistant</small>
-          <span>{message.confidence || "unknown"} confidence</span>
+          <Badge tone="success">{message.confidence || "unknown"} confidence</Badge>
           {message.ragGenerationMode ? (
-            <span>{message.ragGenerationMode}</span>
+            <Badge>{message.ragGenerationMode}</Badge>
           ) : null}
           {message.ragRetrieverModel ? (
-            <span>{message.ragRetrieverModel}</span>
+            <Badge tone="info">{message.ragRetrieverModel}</Badge>
           ) : null}
           {typeof message.metadata?.local_llm_used === "boolean" ? (
-            <span>local LLM {String(message.metadata.local_llm_used)}</span>
+            <Badge>local LLM {String(message.metadata.local_llm_used)}</Badge>
           ) : null}
         </div>
 
@@ -414,6 +440,7 @@ function ChatMessage({
 
         {message.sources?.length ? (
           <div className="chat-source-list">
+            <h4>Sources used</h4>
             {message.sources.map((source) => (
               <article
                 className="chat-source-card"
