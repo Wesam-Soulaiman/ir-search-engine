@@ -76,6 +76,7 @@ PREFERRED_EVALUATION_COLUMNS = [
     "feature_group",
     "comparison_phase",
     "status",
+    "warning",
     "notes",
     "retrieval_mode",
     "query_batch_size",
@@ -167,6 +168,8 @@ class EvaluationCase:
     biomedical_weight: float = 0.0
     ltr_candidate_models: Tuple[str, ...] | None = None
     ltr_model_path: str | None = None
+    evaluation_query_ids: Tuple[str, ...] | None = None
+    warning: str = ""
 
 
 class SpellingEvaluationRunner(EvaluationRunner):
@@ -191,6 +194,7 @@ class SpellingEvaluationRunner(EvaluationRunner):
         if self.use_spelling_correction:
             self.spelling_service = SpellingCorrectionService(
                 dataset_key=self.dataset_key,
+                include_query_terms=False,
             )
 
     def _prepare_search_query(
@@ -410,6 +414,58 @@ def resolve_ltr_model_path(
     return path.resolve()
 
 
+LTR_HELD_OUT_WARNING = (
+    "LTR evaluated on all qrel-backed queries because held-out query IDs "
+    "were not available in model metadata."
+)
+
+
+def resolve_ltr_metadata_path(
+    model_path: Path,
+) -> Path:
+    return model_path.with_name(
+        f"{model_path.stem}_metadata.json"
+    )
+
+
+def load_ltr_held_out_query_ids(
+    model_path: Path,
+) -> Tuple[Tuple[str, ...], str]:
+    metadata_path = resolve_ltr_metadata_path(
+        model_path
+    )
+
+    if not metadata_path.is_file():
+        return (), LTR_HELD_OUT_WARNING
+
+    try:
+        metadata = _read_json(metadata_path)
+    except Exception:
+        return (), LTR_HELD_OUT_WARNING
+
+    raw_query_ids = (
+        metadata.get("held_out_query_ids")
+        or metadata.get("validation_query_ids")
+        or []
+    )
+
+    if not isinstance(raw_query_ids, list):
+        return (), LTR_HELD_OUT_WARNING
+
+    query_ids = tuple(
+        dict.fromkeys(
+            str(query_id).strip()
+            for query_id in raw_query_ids
+            if str(query_id).strip()
+        )
+    )
+
+    if not query_ids:
+        return (), LTR_HELD_OUT_WARNING
+
+    return query_ids, ""
+
+
 def resolve_query_batch_size(
     model: str,
     query_batch_size: int | None,
@@ -496,6 +552,7 @@ def case_cache_key(
         tuple(case.ltr_candidate_models or ()),
         case.include_biomedical,
         case.ltr_model_path,
+        tuple(case.evaluation_query_ids or ()),
         case.biomedical_weight,
         case.use_query_refinement,
         case.use_spelling_correction,
@@ -523,6 +580,7 @@ def base_result_row(
         "feature_group": case.feature_group,
         "comparison_phase": case.comparison_phase,
         "status": status,
+        "warning": case.warning,
         "notes": case.notes,
         "retrieval_depth": args.retrieval_depth,
         "precision_k": args.precision_k,
@@ -632,6 +690,7 @@ def run_runner_for_case(
             model=case.model,
             query_batch_size=args.query_batch_size,
         ),
+        "evaluation_query_ids": list(case.evaluation_query_ids or []) or None,
     }
 
     if runner_class is SpellingEvaluationRunner:
@@ -685,6 +744,17 @@ def evaluate_case(
             }
         )
 
+        held_out_query_ids, warning = load_ltr_held_out_query_ids(
+            ltr_path
+        )
+        case = EvaluationCase(
+            **{
+                **case.__dict__,
+                "evaluation_query_ids": held_out_query_ids or None,
+                "warning": warning,
+            }
+        )
+
     key = case_cache_key(case, args)
 
     if key not in cache:
@@ -711,6 +781,7 @@ def evaluate_case(
         "run_name": case.run_name,
         "feature_group": case.feature_group,
         "comparison_phase": case.comparison_phase,
+        "warning": case.warning,
         "notes": case.notes,
         "use_spelling_correction": case.use_spelling_correction,
         "misspelled_queries": case.misspelled_queries,

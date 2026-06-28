@@ -569,6 +569,7 @@ def _normalize_evaluation_row(
             _get_value(row, ["feature_group", "feature"]) or ""
         ),
         "status": str(_get_value(row, ["status"]) or ""),
+        "warning": str(_get_value(row, ["warning"]) or ""),
         "source_file": source_file,
         "source_csv": source_csv,
         "section_key": section_key,

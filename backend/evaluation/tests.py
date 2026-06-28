@@ -255,6 +255,85 @@ class EvaluationRunnerTests(SimpleTestCase):
             1.0,
         )
 
+    def test_can_evaluate_requested_held_out_query_ids_only(self):
+        queries = [
+            {
+                "query_id": "q1",
+                "query": "alpha query",
+            },
+            {
+                "query_id": "q2",
+                "query": "beta query",
+            },
+            {
+                "query_id": "q3",
+                "query": "unused query",
+            },
+        ]
+        qrels = {
+            "q1": {
+                "d1": 1,
+            },
+            "q2": {
+                "d3": 1,
+            },
+            "q3": {
+                "d9": 1,
+            },
+        }
+        fake_service = FakeRetrievalService()
+
+        with (
+            patch(
+                "evaluation.evaluator."
+                "DatasetLoader.load_queries",
+                return_value=queries,
+            ),
+            patch(
+                "evaluation.evaluator."
+                "DatasetLoader.load_qrels",
+                return_value=qrels,
+            ),
+            patch.object(
+                EvaluationRunner,
+                "_build_retrieval_service",
+                return_value=fake_service,
+            ),
+            patch.object(
+                EvaluationRunner,
+                "_build_query_refinement_service",
+                return_value=None,
+            ),
+        ):
+            runner = EvaluationRunner(
+                dataset_key="sample_dataset",
+                model_name="tfidf",
+                retrieval_depth=2,
+                precision_k=1,
+                recall_k=2,
+                ndcg_k=1,
+                candidate_count=2,
+                evaluation_query_ids=["q2"],
+            )
+            result = runner.evaluate()
+
+        self.assertEqual(
+            runner.evaluation_query_ids,
+            ["q2"],
+        )
+        self.assertEqual(
+            result["qrels_queries"],
+            1,
+        )
+        self.assertEqual(
+            result["evaluated_queries"],
+            1,
+        )
+        self.assertAlmostEqual(
+            result["MAP@2"],
+            1.0,
+        )
+
     def test_missing_query_text_causes_failure(self):
         queries = [
             {

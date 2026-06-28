@@ -395,6 +395,50 @@ class SpellingCorrectionServiceTests(SimpleTestCase):
             "what is the best way to learn programming",
         )
 
+    def test_default_surface_vocabulary_excludes_official_queries(self):
+        SpellingCorrectionService._SURFACE_VOCABULARY_CACHE.clear()
+
+        with tempfile.TemporaryDirectory() as directory:
+            documents_path = Path(directory) / "documents.json"
+            queries_path = Path(directory) / "queries.tsv"
+
+            documents_path.write_text(
+                json.dumps([
+                    {
+                        "doc_id": "d1",
+                        "text": "documentonlyterm",
+                    }
+                ]),
+                encoding="utf-8",
+            )
+            queries_path.write_text(
+                "q1\tcleanqueryterm\n",
+                encoding="utf-8",
+            )
+
+            with patch(
+                "query_refinement.spelling_correction_service."
+                "get_dataset_config",
+                return_value={
+                    "documents_path": str(documents_path),
+                    "queries_path": str(queries_path),
+                    "format": "json",
+                },
+            ):
+                service = SpellingCorrectionService(
+                    dataset_key="sample_dataset",
+                    min_frequency=1,
+                )
+
+        self.assertIn(
+            "documentonlyterm",
+            service.vocabulary,
+        )
+        self.assertNotIn(
+            "cleanqueryterm",
+            service.vocabulary,
+        )
+
 
 class LexicalRetrievalIntegrationTests(
     SimpleTestCase
@@ -1192,6 +1236,19 @@ class LTRRetrievalServiceTests(SimpleTestCase):
             self.assertEqual(
                 metadata["feature_names"],
                 LTRFeatureExtractor.feature_names,
+            )
+
+            self.assertIn(
+                "validation_query_ids",
+                metadata,
+            )
+            self.assertEqual(
+                metadata["held_out_query_ids"],
+                metadata["validation_query_ids"],
+            )
+            self.assertEqual(
+                len(metadata["validation_query_ids"]),
+                metadata["validation_query_count"],
             )
 
 
@@ -4059,6 +4116,10 @@ class FinalEvaluationSuiteTests(SimpleTestCase):
             row["MAP"],
             0.3,
         )
+        self.assertIn(
+            "held-out query IDs",
+            row["warning"],
+        )
 
         called_case = (
             mocked_run_runner_for_case
@@ -4072,6 +4133,109 @@ class FinalEvaluationSuiteTests(SimpleTestCase):
         self.assertNotIn(
             "biomedical_embedding",
             called_case.ltr_candidate_models,
+        )
+        self.assertIsNone(
+            called_case.evaluation_query_ids,
+        )
+
+    @patch(
+        "scripts.run_final_evaluation_suite.run_runner_for_case"
+    )
+    def test_ltr_case_uses_validation_query_ids_from_metadata(
+        self,
+        mocked_run_runner_for_case,
+    ):
+        from scripts import run_final_evaluation_suite as suite
+
+        with tempfile.TemporaryDirectory() as directory:
+            ltr_model_path = (
+                Path(directory)
+                / "clinical_trials_ltr.joblib"
+            )
+            metadata_path = ltr_model_path.with_name(
+                "clinical_trials_ltr_metadata.json"
+            )
+            ltr_model_path.write_bytes(b"model")
+            metadata_path.write_text(
+                json.dumps({
+                    "validation_query_ids": [
+                        "q2",
+                        "q3",
+                    ],
+                }),
+                encoding="utf-8",
+            )
+            args = self._suite_args(ltr_model_path)
+            case = suite.EvaluationCase(
+                dataset="clinical_trials",
+                model="ltr",
+                scenario="learning_to_rank",
+                run_name="clinical_trials_ltr",
+                section="before_after_features",
+                feature_group="learning_to_rank",
+                ltr_model_path=str(ltr_model_path),
+            )
+
+            mocked_run_runner_for_case.return_value = {
+                "dataset": "clinical_trials",
+                "model": "ltr",
+                "MAP@10": 0.3,
+                "Precision@10": 0.4,
+                "Recall@10": 0.5,
+                "nDCG@10": 0.6,
+            }
+
+            row = suite.evaluate_case(
+                case=case,
+                args=args,
+                cache={},
+            )
+
+        called_case = (
+            mocked_run_runner_for_case
+            .call_args
+            .kwargs["case"]
+        )
+        self.assertEqual(
+            called_case.evaluation_query_ids,
+            (
+                "q2",
+                "q3",
+            ),
+        )
+        self.assertEqual(
+            row["warning"],
+            "",
+        )
+
+    def test_final_spelling_runner_uses_corpus_only_vocabulary(self):
+        from scripts import run_final_evaluation_suite as suite
+
+        def fake_evaluation_init(self, *args, **kwargs):
+            self.dataset_key = kwargs["dataset_key"]
+            self.use_query_refinement = False
+            self.query_refinement_service = None
+
+        with (
+            patch(
+                "scripts.run_final_evaluation_suite."
+                "EvaluationRunner.__init__",
+                fake_evaluation_init,
+            ),
+            patch(
+                "scripts.run_final_evaluation_suite."
+                "SpellingCorrectionService"
+            ) as mocked_spelling_service,
+        ):
+            suite.SpellingEvaluationRunner(
+                dataset_key="sample_dataset",
+                model_name="bm25",
+                use_spelling_correction=True,
+            )
+
+        mocked_spelling_service.assert_called_once_with(
+            dataset_key="sample_dataset",
+            include_query_terms=False,
         )
 
 

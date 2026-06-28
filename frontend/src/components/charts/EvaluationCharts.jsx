@@ -660,6 +660,8 @@ function EvaluationRowsTable({
     );
   }
 
+  const hasWarnings = rows.some((row) => row.warning);
+
   return (
     <div className="analytics-table-wrap">
       <table className="analytics-table">
@@ -674,6 +676,7 @@ function EvaluationRowsTable({
             <th>Recall</th>
             <th>nDCG</th>
             <th>Time/Latency</th>
+            {hasWarnings ? <th>Warning</th> : null}
             <th>Source CSV</th>
           </tr>
         </thead>
@@ -707,6 +710,7 @@ function EvaluationRowsTable({
                   ? "N/A"
                   : null}
               </td>
+              {hasWarnings ? <td>{row.warning || ""}</td> : null}
               <td>{row.source_csv}</td>
             </tr>
           ))}

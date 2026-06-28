@@ -187,40 +187,52 @@ Clustering and topic detection are not ranked retrieval tasks, so MAP and nDCG a
 
 ## Latest Evaluation Results
 
+These tables are refreshed from the curated final CSV files in
+`reports/evaluation/final/`.
+
 ### Quora
 
 | Model           |      MAP | Precision@10 |   Recall |  nDCG@10 |
 | --------------- | -------: | -----------: | -------: | -------: |
-| TF-IDF          | 0.689935 |     0.111890 | 0.952802 | 0.731330 |
-| BM25            | 0.720676 |     0.116750 | 0.963569 | 0.761794 |
-| Embedding       | 0.794472 |     0.128190 | 0.979004 | 0.831295 |
-| Hybrid Parallel | 0.774977 |     0.124330 | 0.988270 | 0.813707 |
-| Hybrid Serial   | 0.839377 |     0.132550 | 0.987909 | 0.872116 |
-| LTR             | 0.824619 |     0.131600 | 0.997103 | 0.860768 |
+| TF-IDF          | 0.690399 |     0.111890 | 0.989209 | 0.731330 |
+| BM25            | 0.721034 |     0.116750 | 0.991460 | 0.761794 |
+| Embedding       | 0.794665 |     0.128190 | 0.986158 | 0.831295 |
+| Hybrid Serial   | 0.839498 |     0.132550 | 0.991460 | 0.872116 |
+| Hybrid Parallel | 0.775273 |     0.124330 | 0.999084 | 0.813707 |
 
 Notes:
 
-* LTR was fully trained on Quora.
-* LTR evaluation was completed over 10,000 queries.
-* LTR used candidate_count = 500.
-* LTR achieved very strong performance and the highest recall among the listed Quora configurations.
+* Hybrid Serial produced the strongest Quora MAP and nDCG among the baseline representation methods.
+* BM25 remains a strong lexical baseline, while Embedding retrieval improves MAP and nDCG over TF-IDF/BM25.
+* LTR is reported in the extra-feature CSVs. Current saved LTR metadata does not contain held-out query IDs, so LTR rows should be regenerated after retraining before they are treated as official held-out final metrics.
 
 ---
 
 ### Clinical Trials
 
-| Model               |      MAP | Precision@10 |   Recall |  nDCG@10 |
-| ------------------- | -------: | -----------: | -------: | -------: |
-| BM25                | 0.265665 |        0.440 | 0.742024 | 0.419820 |
-| Distributed BM25    | 0.251163 |        0.438 | 0.740266 | 0.385522 |
-| Hybrid + Biomedical | 0.199293 |        0.364 | 0.719760 | 0.320801 |
-| LTR                 | 0.352012 |        0.550 | 0.785058 | 0.570328 |
+| Model           |      MAP | Precision@10 |   Recall |  nDCG@10 |
+| --------------- | -------: | -----------: | -------: | -------: |
+| TF-IDF          | 0.161180 |        0.272 | 0.687131 | 0.233755 |
+| BM25            | 0.265665 |        0.440 | 0.742024 | 0.419820 |
+| Embedding       | 0.020838 |        0.092 | 0.190333 | 0.071522 |
+| Hybrid Serial   | 0.059137 |        0.110 | 0.742024 | 0.079190 |
+| Hybrid Parallel | 0.192592 |        0.352 | 0.690228 | 0.304596 |
 
 Notes:
 
-* LTR achieved the best Clinical Trials results among the tested configurations.
-* Distributed BM25 preserved results close to centralized BM25 while demonstrating a distributed retrieval architecture.
-* Biomedical PubMedBERT improved the system with a domain-specific retrieval component.
+* BM25 is the strongest Clinical Trials baseline in the current final model comparison.
+* Dense general-purpose embeddings perform poorly on Clinical Trials compared with BM25, which supports using dataset-specific biomedical retrieval as an optional feature.
+* Current saved LTR rows in `final_before_after_features.csv` show strong scores, but those rows should be regenerated after retraining because older metadata did not store validation query IDs.
+
+### Query Refinement Result
+
+The current final CSVs show pseudo relevance feedback as optional rather than a default improvement. For Clinical Trials, BM25 without PRF scored MAP `0.265665`, Precision@10 `0.440`, Recall `0.742024`, and nDCG `0.419820`; BM25 with PRF scored MAP `0.226592`, Precision@10 `0.400`, Recall `0.727277`, and nDCG `0.390925`. For Quora, PRF also reduced MAP, Precision@10, Recall, and nDCG. Therefore PRF is kept as an explainable query-refinement feature, but it is not enabled by default as a quality improvement in the final dashboard.
+
+Runtime charts currently measure retrieval/evaluation time only. They may not include all query refinement or spelling-correction preprocessing overhead, so runtime comparisons should be interpreted as retrieval pipeline timing rather than full end-user latency.
+
+RAG is evaluated qualitatively through grounded answers and citations. Ranked retrieval is evaluated quantitatively with MAP, Recall, Precision@10, and nDCG because qrels define document-level relevance.
+
+Clustering and topic detection are evaluated through visual, intrinsic, and descriptive analysis such as cluster sizes, topic frequencies, top terms, example documents, topic diversity, and optional intrinsic scores. They are not evaluated with MAP or nDCG because they are not ranked retrieval tasks.
 
 ---
 

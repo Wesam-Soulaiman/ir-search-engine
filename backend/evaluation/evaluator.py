@@ -1,6 +1,6 @@
 import gc
 from time import perf_counter
-from typing import Dict, List, Set
+from typing import Dict, Iterable, List, Set
 
 from datasets.dataset_loader import DatasetLoader
 from evaluation.metrics import (
@@ -106,6 +106,7 @@ class EvaluationRunner:
         feedback_docs: int = 3,
         expansion_terms: int = 5,
         query_batch_size: int | None = None,
+        evaluation_query_ids: Iterable[str] | None = None,
     ):
         self.dataset_key = str(
             dataset_key
@@ -213,6 +214,16 @@ class EvaluationRunner:
                 if self.model_name == "ltr"
                 else DEFAULT_EVALUATION_QUERY_BATCH_SIZE
             )
+        )
+
+        self.requested_evaluation_query_ids = (
+            [
+                str(query_id).strip()
+                for query_id in evaluation_query_ids
+                if str(query_id).strip()
+            ]
+            if evaluation_query_ids is not None
+            else None
         )
 
         self._validate_parameters()
@@ -499,6 +510,39 @@ class EvaluationRunner:
                 f"{len(missing_query_ids)}. "
                 f"Examples: {examples}"
             )
+
+        if self.requested_evaluation_query_ids is not None:
+            ordered_query_ids = list(
+                dict.fromkeys(
+                    self.requested_evaluation_query_ids
+                )
+            )
+
+            if not ordered_query_ids:
+                raise ValueError(
+                    "evaluation_query_ids cannot be empty."
+                )
+
+            missing_from_qrels = [
+                query_id
+                for query_id in ordered_query_ids
+                if query_id not in qrels_query_ids
+            ]
+
+            missing_from_queries = [
+                query_id
+                for query_id in ordered_query_ids
+                if query_id not in loaded_query_ids
+            ]
+
+            if missing_from_qrels or missing_from_queries:
+                raise ValueError(
+                    "Some requested evaluation query IDs are unavailable. "
+                    f"Missing from qrels: {missing_from_qrels[:10]}; "
+                    f"missing from query file: {missing_from_queries[:10]}."
+                )
+
+            return ordered_query_ids
 
         ordered_query_ids = [
             query_id
@@ -839,8 +883,11 @@ class EvaluationRunner:
         return total / count
 
     def evaluate(self) -> Dict:
-        total_qrels_queries = len(
+        total_available_qrels_queries = len(
             self.qrels_raw
+        )
+        total_qrels_queries = len(
+            self.evaluation_query_ids
         )
 
         total_loaded_queries = len(
@@ -872,9 +919,14 @@ class EvaluationRunner:
         )
 
         print(
-            "Unique query IDs in qrels: "
+            "Evaluation query IDs from qrels: "
             f"{total_qrels_queries:,}"
         )
+        if total_qrels_queries != total_available_qrels_queries:
+            print(
+                "Total available qrels query IDs: "
+                f"{total_available_qrels_queries:,}"
+            )
 
         print(
             "Queries scheduled for evaluation: "

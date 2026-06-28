@@ -632,6 +632,9 @@ def train_ltr_model(
             in normalized_candidate_models
         ),
         "candidate_count": candidate_count,
+        "train_query_ids": train_query_ids,
+        "validation_query_ids": validation_query_ids,
+        "held_out_query_ids": validation_query_ids,
         "train_query_count": len(
             train_query_ids
         ),

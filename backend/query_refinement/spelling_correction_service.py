@@ -26,7 +26,7 @@ class SpellingCorrectionService:
     """
 
     _SURFACE_VOCABULARY_CACHE: Dict[
-        str,
+        Tuple[str, bool],
         Counter,
     ] = {}
 
@@ -39,6 +39,7 @@ class SpellingCorrectionService:
         min_frequency: int | None = None,
         max_documents: int = 250_000,
         max_vocabulary_size: int = 80_000,
+        include_query_terms: bool = False,
     ):
         self.dataset_key = str(
             dataset_key
@@ -66,6 +67,10 @@ class SpellingCorrectionService:
 
         self.max_vocabulary_size = int(
             max_vocabulary_size
+        )
+
+        self.include_query_terms = bool(
+            include_query_terms
         )
 
         if self.max_corrections <= 0:
@@ -137,7 +142,10 @@ class SpellingCorrectionService:
 
         cached_counts = (
             self._SURFACE_VOCABULARY_CACHE.get(
-                self.dataset_key
+                (
+                    self.dataset_key,
+                    self.include_query_terms,
+                )
             )
         )
 
@@ -147,7 +155,10 @@ class SpellingCorrectionService:
         counts = self._build_surface_counts()
 
         self._SURFACE_VOCABULARY_CACHE[
-            self.dataset_key
+            (
+                self.dataset_key,
+                self.include_query_terms,
+            )
         ] = counts
 
         return counts
@@ -178,12 +189,13 @@ class SpellingCorrectionService:
             counts=counts,
         )
 
-        self._add_query_terms(
-            queries_path=Path(
-                config["queries_path"]
-            ),
-            counts=counts,
-        )
+        if self.include_query_terms:
+            self._add_query_terms(
+                queries_path=Path(
+                    config["queries_path"]
+                ),
+                counts=counts,
+            )
 
         if (
             self.max_vocabulary_size > 0
